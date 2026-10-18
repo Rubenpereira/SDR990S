@@ -1,0 +1,105 @@
+SDR-990S - receptor SDR com painel de radio de mesa (Windows 7, 8, 10 e 11)
+=========================================================================
+
+NAO PRECISA INSTALAR. Descompacte esta pasta onde quiser (Area de Trabalho,
+Documentos, pendrive...) e de dois cliques em SDR990S.exe.
+
+- A tela e o painel frontal de um transceptor de HF de mesa: tela principal com
+  S-meter de ponteiro, Band Scope e cachoeira, tela MAIN/SUB, dial grande, dial
+  do SUB, teclado de bandas, RIT/XIT, MULTI/CH e os botoes duplos.
+- Cada botao faz a funcao do radio. Os de transmissao (num receptor nao servem)
+  ganharam funcoes de recepcao. PARE O MOUSE EM CIMA DE QUALQUER BOTAO: a dica
+  diz exatamente o que ele faz.
+- A configuracao fica no arquivo SDR990S.ini, ao lado do programa. Para levar
+  para outro PC, copie a pasta inteira.
+- Aparelhos: RTL-SDR (USB), RTL-TCP (rede) e SDRplay.
+
+RTL-SDR: o driver WinUSB tem de estar instalado com o Zadig, igual ao SDR#.
+SDRplay: instale a API oficial da SDRplay (www.sdrplay.com/api).
+
+Primeiro uso
+ 1. Abra o SDR990S.exe.
+ 2. Aperte MENU > Configuracao (ou a tecla ANT ao lado da tela) e escolha o aparelho.
+ 3. Aperte o botao liga (canto de cima, a esquerda).
+
+Tela
+ - O radio fica no alto. Embaixo: barra de botoes (IF DISPLAY, NR ESPECTRAL,
+   NR1, NB1, AUTO, PADRAO, ZOOM, MUTE), o IF DISPLAY a esquerda e a cachoeira
+   grande. A barra fina entre o radio e a cachoeira pode ser arrastada para cima
+   ou para baixo; arrastando ate embaixo fica so o radio.
+ - NR ESPECTRAL e o mesmo filtro do RXSDR. No painel ele e a tecla NR2; a forca
+   fica no anel de fora do botao NR1/NR2 (ou na setinha ao lado do botao de baixo).
+ - Abre em tela inteira (maximizado).
+
+Como mexer
+ - Teclas: clique. Algumas tem segunda funcao (SEL): segure meio segundo.
+ - Botoes duplos (AF/RF, NOTCH/SQL, HI/LO...): o miolo e um controle, o anel de
+   fora e outro. Arraste para cima/direita (aumenta) ou use a roda do mouse em
+   cima do miolo ou do anel.
+ - Dial principal e dial do SUB: arraste girando em volta, ou roda do mouse.
+   Girar rapido acelera. FINE = passos de 1 Hz. LOCK trava.
+ - Band Scope: clique sintoniza, arrastar move a faixa, roda do mouse anda um
+   passo, arrastar a borda do filtro muda a largura, botao direito = bandas.
+ - Teclado do PC: digite a frequencia em kHz e Enter. Setas: passo / 1 MHz.
+ - Botao direito no painel = MENU.  F12 = captura da tela (pasta Capturas).
+
+Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
+ Coluna da esquerda
+   (liga)     liga/desliga o radio      TIMER   desliga sozinho depois de X min
+   PF A       decodificadores           DIM     brilho das telas
+   SEND       silencia tudo (MUTE)      AT      ajuste automatico da cachoeira
+                                                (segurar: guarda como padrao)
+ Teclas ao lado da tela principal
+   ANT   aparelho (RTL / TCP / SDRplay) ATT    atenuador 0/6/12/18 dB
+   PSEL  amostragem direta (HF) AUTO/ON/OFF   PAMP pre-amplificador
+   T-AGC AGC do dongle                   METER  S-meter em S, dB ou pico
+   RATE  taxa de amostragem (largura do Band Scope)
+ F1-F7 (Band Scope)
+   F1 RF/AF  IF DISPLAY (zoom de 20 kHz)  F2 ATT   escurece o escopo
+   F3 MARKER nomes das memorias           F4 PAUSE congela
+   F5 M/S    troca MAIN/SUB               F6 SPAN  largura (zoom)
+   F7 MODE   CENTER / FIXED               SCP      escopo grande / tela cheia
+ Embaixo
+   VOX   squelch automatico               PROC  compressor de audio
+   FBK   decodificador de CW              MONI  saida de som (placa/fone)
+   MIC / VOX GAIN       tonalidade / margem do squelch automatico
+   PROC IN / PROC OUT   forca do compressor / retorno do S-meter
+   PWR / CAR            brilho / contraste da cachoeira
+   KEY SPEED / DELAY    velocidade da cachoeira / demora do squelch para fechar
+   CW PITCH / MONITOR   tom do CW (e do APF) / altura espectro x cachoeira
+ Modos
+   LSB/USB, CW, FM/AM (segurar: FM largo), FSK/PSK (decodificador RTTY),
+   DATA (decodificadores: DMR, TETRA, AIS, APRS, ACARS, HFDL, SSTV, WEFAX, DRM...)
+ Centro
+   MAIN RX / SUB RX   qual receptor se ouve    MAIN TX / SUB TX  marca o "TX"
+   M>S  copia MAIN para SUB    M/S  troca os dois    SPLIT acende com TX no outro
+   TF-SET  segurando, escuta a frequencia marcada como TX
+ Bandas e memoria
+   RX ANT  Bias-T (antena ativa)   DRV  tira o risco do DC   XVTR  upconverter
+   1.8 ... 50   bandas (cada uma lembra onde voce estava)
+   ENT  digitar a frequencia em kHz (as teclas de banda viram 1..9, 0)  CLR apaga
+   GEN 1  ondas curtas/medias (SWL)    GEN 2  VHF/UHF    MENU  configuracao etc.
+   <MAIN / SUB>  escolhe o receptor    UP / DOWN  1 MHz
+   M/V  VFO <-> canais de memoria   M.IN  grava memoria   M>V  memoria -> VFO
+   REC / STOP / PLAY  grava e toca o audio (pasta Gravacoes)
+   S.DISP  tela pequena: MAIN/SUB, relogio ou texto do decoder
+   QUICK MEMO  MR chama / M.IN guarda (10 memorias rapidas)
+   CW T.  sintonia automatica no pico   FIL/SEL  filtro A/B/C
+   VOICE  fala a frequencia (voz do Windows)
+ Meio
+   RIT/XIT  desloca a escuta (RIT = MAIN, XIT = SUB)   CL zera
+   MULTI/CH  passo de sintonia (clique troca o passo); em memoria passa canais
+   TRACKING  o SUB anda junto com o MAIN    PF B  lista de memorias
+   AGC/SEL  SLOW/MID/FAST     AGC OFF        RXEQ  equalizacao do audio
+   TXEQ/SEL  cores da cachoeira
+ Colunas MAIN e SUB RECEIVER
+   NB1 (audio) / NB2 (IQ)   NR1 (redutor) / NR2 (NR espectral)
+   NOTCH / SQL   NCH (notch manual; segurar: largo)   BEF (elimina faixa)
+   A.NCH (notch automatico)   BC (cancela batimentos)   APF (pico p/ CW)
+   HI/SHIFT - LO/WIDTH: corte alto/baixo (SSB/AM), shift/largura (CW),
+   largura (FM). Vale para o receptor ouvido (LED SUB aceso = SUB).
+   AF / RF  volume / ganho de RF   MUTE
+
+Licenca: uso livre e NAO COMERCIAL, mantendo o credito ao autor (LICENSE.txt).
+Os decodificadores da pasta decoders sao de outros autores e seguem a licenca
+de cada um (lista e enderecos do codigo-fonte em TERCEIROS.txt).
