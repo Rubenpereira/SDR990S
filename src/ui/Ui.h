@@ -99,6 +99,11 @@ private:
     void centrarParaZoom(bool forcar);   // com zoom: estacao no meio, com o LO do dongle fora do canal
     void mudarModo(const std::string& m);
     void ligarDesligar();
+    void lerPedidoTeste();          // teste.pedido ao lado do exe (teste remoto)
+    void arcoVfo();                 // escala em meia-lua da tela SUB (gira com o VFO)
+    void trocarMainSub();           // tecla M/S
+    double arcoF_ = 0;              // frequencia que a escala mostra (segue o VFO suavemente)
+    double arcoResto_ = 0;          // Hz arrastados que ainda nao deram um passo
     void autoCachoeira();                 // botao AUTO (igual a pagina)
     void seguirAuto();                    // AUTO aceso: acompanha o piso
     double ultSeguirAuto_ = 0;
@@ -239,6 +244,14 @@ private:
     int  decSelPend_ = 0, decSelFeito_ = 0;
     int  decCol_ = 0, decLinhas_ = 0;
     int decCanalRtty_ = -1, decCanalSitor_ = -1, decCanalDsc_ = -1, decCanalAle_ = -1, decCanalPactor_ = -1;
+
+    // FT8 / FT4
+    void painelFt8();                 // bandas, relogio UTC, andamento do periodo
+    static uint64_t freqFt8NaBanda(uint64_t vfo, bool ft4);
+    void tabelaFt8(bool chegou);      // a lista (no lugar da caixa de texto)
+    std::vector<Ft8Core::Mensagem> ft8Msgs_;
+    bool ft8SoCq_ = false;
+    char ft8Busca_[24] = {0};
 
     // SSTV
     void painelSstv();

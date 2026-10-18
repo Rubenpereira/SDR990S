@@ -37,6 +37,8 @@ Como mexer
    fora e outro. Arraste para cima/direita (aumenta) ou use a roda do mouse em
    cima do miolo ou do anel.
  - Dial principal e dial do SUB: arraste girando em volta, ou roda do mouse.
+ - Escala em meia-lua (embaixo da tela MAIN/SUB): gira junto com o VFO do
+   receptor ouvido. Arraste para os lados ou use a roda do mouse em cima dela.
    Girar rapido acelera. FINE = passos de 1 Hz. LOCK trava.
  - Band Scope: clique sintoniza, arrastar move a faixa, roda do mouse anda um
    passo, arrastar a borda do filtro muda a largura, botao direito = bandas.
@@ -69,10 +71,15 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
    CW PITCH / MONITOR   tom do CW (e do APF) / altura espectro x cachoeira
  Modos
    LSB/USB, CW, FM/AM (segurar: FM largo), FSK/PSK (decodificador RTTY),
-   DATA (decodificadores: DMR, TETRA, AIS, APRS, ACARS, HFDL, SSTV, WEFAX, DRM...)
+   DATA (decodificadores: FT8, FT4, DMR, TETRA, AIS, APRS, ACARS, HFDL, SSTV, WEFAX, DRM...)
  Centro
    MAIN RX / SUB RX   qual receptor se ouve    MAIN TX / SUB TX  marca o "TX"
-   M>S  copia MAIN para SUB    M/S  troca os dois    SPLIT acende com TX no outro
+   M>S  copia MAIN para SUB    SPLIT acende com TX no outro
+   M/S  troca as FREQUENCIAS (modo e filtro) do MAIN e do SUB; volume, squelch
+        e os botoes de cada coluna ficam no lugar. O LED verde mostra o receptor
+        que esta tocando: para trocar, MAIN RX / SUB RX (ou F5).
+   SQL na tela: o squelch daquele receptor esta ligado (vermelho = fechando o som
+        agora). Para abrir: tecla SEL/VOX acesa, ou o anel SQL do NOTCH/SQL.
    TF-SET  segurando, escuta a frequencia marcada como TX
  Bandas e memoria
    RX ANT  Bias-T (antena ativa)   DRV  tira o risco do DC   XVTR  upconverter
@@ -96,9 +103,22 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
    NB1 (audio) / NB2 (IQ)   NR1 (redutor) / NR2 (NR espectral)
    NOTCH / SQL   NCH (notch manual; segurar: largo)   BEF (elimina faixa)
    A.NCH (notch automatico)   BC (cancela batimentos)   APF (pico p/ CW)
+   BW (barra de baixo, ao lado do MUTE): largura do filtro - clique = lista,
+   roda do mouse = ajusta. E o mesmo do knob HI/SHIFT - LO/WIDTH:
    HI/SHIFT - LO/WIDTH: corte alto/baixo (SSB/AM), shift/largura (CW),
    largura (FM). Vale para o receptor ouvido (LED SUB aceso = SUB).
    AF / RF  volume / ganho de RF   MUTE
+
+FT8 e FT4 (DATA ou PF A > Decodificador > FT8)
+ - So recepcao, em USB. Escolha a banda na lista (40 m = 7074 kHz, 20 m =
+   14074 kHz...) ou ja esteja numa banda de radioamador: o radio vai sozinho
+   para a frequencia do FT8 dela.
+ - A lista sai no fim de cada periodo de 15 s (FT4: 7,5 s): hora UTC, dB
+   (SNR, como no WSJT-X), DT, Hz e a mensagem. CQ em verde. "So CQ" e a
+   busca filtram; Copiar e Salvar .txt levam tudo.
+ - O RELOGIO DO PC PRECISA ESTAR CERTO (erro menor que 1 s). No Windows:
+   Configuracoes > Hora e idioma > Data e hora > Sincronizar agora. Se todos
+   os DT passarem de +1 s, o relogio esta adiantado; abaixo de -1 s, atrasado.
 
 Licenca: uso livre e NAO COMERCIAL, mantendo o credito ao autor (LICENSE.txt).
 Os decodificadores da pasta decoders sao de outros autores e seguem a licenca

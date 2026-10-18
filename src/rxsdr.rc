@@ -6,8 +6,8 @@ IDR_SMETER_PNG RCDATA  "../assets/smeter_face.png"
 IDR_OLHO_PNG   RCDATA  "../assets/eye_bezel.png"
 
 1 VERSIONINFO
- FILEVERSION 1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION 1,1,1,0
+ PRODUCTVERSION 1,1,1,0
  FILEOS 0x40004
  FILETYPE 0x1
 BEGIN
@@ -17,9 +17,9 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "SDR-990S"
       VALUE "FileDescription", "SDR-990S - receptor SDR com painel de radio"
-      VALUE "FileVersion", "1.0.0"
+      VALUE "FileVersion", "1.1.1"
       VALUE "ProductName", "SDR-990S"
-      VALUE "ProductVersion", "1.0.0"
+      VALUE "ProductVersion", "1.1.1"
       VALUE "OriginalFilename", "SDR990S.exe"
     END
   END

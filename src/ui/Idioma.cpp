@@ -15,6 +15,18 @@ std::atomic<bool> g_ingles{false};
 struct Par { const char* pt; const char* en; };
 
 const Par kTextos[] = {
+    {"FT8 (radioamador, WSJT-X)", "FT8 (ham radio, WSJT-X)"},
+    {"FT4 (radioamador, WSJT-X)", "FT4 (ham radio, WSJT-X)"},
+    {"[FT8] iniciado - periodos de 15 s pelo relogio UTC do PC; a lista sai no fim de cada periodo\n", "[FT8] started - 15 s periods on the PC UTC clock; the list comes at the end of each period\n"},
+    {"[FT4] iniciado - periodos de 7,5 s pelo relogio UTC do PC; a lista sai no fim de cada periodo\n", "[FT4] started - 7.5 s periods on the PC UTC clock; the list comes at the end of each period\n"},
+    {"decodificando o periodo...  |  total %d mensagens", "decoding the period...  |  total %d messages"},
+    {"esperando o proximo periodo (%.0f s)  |  entrou no meio de um", "waiting for the next period (%.0f s)  |  started in the middle of one"},
+    {"%.0f de %.0f s  |  ultimo periodo: %d mensagens  |  total %d  |  audio %.0f dBFS", "%.0f of %.0f s  |  last period: %d messages  |  total %d  |  audio %.0f dBFS"},
+    {"Só recepção, em USB. O relógio do PC precisa estar certo (erro menor que 1 s): Windows > Data e hora > Sincronizar agora.", "Receive only, in USB. The PC clock must be right (error under 1 s): Windows > Date and time > Sync now."},
+    {"DT = atraso do sinal em segundos; perto de 0 = relógio certo. Se todos os DT passarem de +1 s (ou de -1 s), acerte o relógio.", "DT = signal delay in seconds; near 0 = clock right. If every DT is above +1 s (or below -1 s), fix the clock."},
+    {"Só CQ", "CQ only"},
+    {"procurar (indicativo, grade...)", "search (callsign, grid...)"},
+    {"%d de %d mensagens", "%d of %d messages"},
     {"Mostrar todas", "Show all"},
     {"Somente utilitárias", "Utility only"},
     {"Broadcast — no ar agora", "Broadcast — on air now"},
@@ -111,7 +123,7 @@ const Par kTextos[] = {
     {"Não foi possível criar o arquivo de gravação:\n", "Could not create the recording file:\n"},
     {"Sobre###sobre", "About###sobre"},
     {"Receptor SDR que roda inteiro no Windows (7, 8, 10 e 11), sem navegador.", "SDR receiver that runs entirely on Windows (7, 8, 10 and 11), no browser needed."},
-    {"Portátil: não precisa instalar - a configuração fica no RXSDR.ini ao lado do programa.", "Portable: no installation needed - settings are kept in RXSDR.ini next to the program."},
+    {"Portátil: não precisa instalar - a configuração fica no SDR990S.ini ao lado do programa.", "Portable: no installation needed - settings are kept in SDR990S.ini next to the program."},
     {"RTL-SDR, RTL-TCP e SDRplay.", "RTL-SDR, RTL-TCP and SDRplay."},
     {"Licença: uso livre e NÃO COMERCIAL, mantendo o crédito ao autor (LICENSE.txt).", "License: free NON-COMMERCIAL use, keeping the credit to the author (LICENSE.txt)."},
     {"Decodificadores da pasta decoders: de outros autores, com a licença de cada um (TERCEIROS.txt).", "Programs in the decoders folder: by other authors, each under its own license (TERCEIROS.txt)."},

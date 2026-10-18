@@ -6,7 +6,7 @@ uso livre e NAO COMERCIAL, mantendo o credito ao autor.
 
 Essa licenca vale so para o codigo do SDR990S. Os programas abaixo foram feitos
 por outras pessoas, vem junto na pasta apenas para facilitar o uso e continuam
-com a licenca original de cada um. O RXSDR conversa com os decodificadores
+com a licenca original de cada um. O SDR990S conversa com os decodificadores
 externos como programas separados (entrada e saida de dados), sem juntar o
 codigo deles ao seu.
 
@@ -14,14 +14,18 @@ O codigo-fonte de cada um esta no endereco indicado. Quando houve alguma
 mudanca para compilar ou funcionar no Windows, ela esta descrita aqui.
 
 
-DENTRO DO RXSDR.exe
--------------------
+DENTRO DO SDR990S.exe
+---------------------
 Dear ImGui (tela)              MIT               https://github.com/ocornut/imgui
 stb_image / stb_image_write    dominio publico / MIT
                                                  https://github.com/nothings/stb
+ft8_lib (decodificador FT8/FT4) MIT              https://github.com/kgoba/ft8_lib
+   (c) 2018 Karlis Goba. Inclui o kiss_fft (BSD). Duas mudancas pequenas para
+   compilar no MSVC, descritas em third_party/ft8_lib/LEIA-ME.txt; a licenca
+   completa esta no fim deste arquivo.
 
-AO LADO DO RXSDR.exe
---------------------
+AO LADO DO SDR990S.exe
+----------------------
 rtl-sdr (rtlsdr.dll, librtlsdr.dll)
                                GPL-2.0           https://github.com/osmocom/rtl-sdr
 libusb (libusb-1.0.dll)        LGPL-2.1          https://github.com/libusb/libusb
@@ -99,3 +103,28 @@ SDRplay API: instale a versao oficial em https://www.sdrplay.com/api/
 
 Os textos completos das licencas GPL, LGPL e AGPL estao em
 https://www.gnu.org/licenses/
+
+
+LICENCA DO ft8_lib
+------------------
+MIT License
+
+Copyright (c) 2018 Kārlis Goba
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -28,6 +28,15 @@ namespace {
 constexpr double kTaxa = 8000.0;               // taxa de trabalho de todos os nucleos
 constexpr size_t kFilaMax = 48000 * 3;         // mais de 3 s atrasado: joga o velho fora
 
+// Hora UTC do PC em segundos desde 1970 (com fracao): o FT8 conta os periodos nela
+double utcAgora()
+{
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    const unsigned long long t = ((unsigned long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    return (double)(t - 116444736000000000ULL) / 1e7;
+}
+
 std::string horaUtc()
 {
     SYSTEMTIME st; GetSystemTime(&st);
@@ -57,6 +66,8 @@ const char* Decoders::nome(Tipo t)
     case SSTV: return T("SSTV (imagens)");
     case WEFAX: return T("WEFAX (fax meteorológico)");
     case PACTOR: return T("PACTOR-I (Marinha / FEC)");
+    case FT8: return T("FT8 (radioamador, WSJT-X)");
+    case FT4: return T("FT4 (radioamador, WSJT-X)");
     default: return T("Nenhum");
     }
 }
@@ -83,7 +94,7 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
 {
     std::lock_guard<std::mutex> lk(coreMutex_);
     aj_ = a;
-    cw_.reset(); rtty_.reset(); sitor_.reset(); dsc_.reset(); ale_.reset(); analise_.reset(); pactor_.reset();
+    cw_.reset(); rtty_.reset(); sitor_.reset(); dsc_.reset(); ale_.reset(); analise_.reset(); pactor_.reset(); ft8_.reset();
     analiseFeita_ = false;
     if (t != DMR) dsd_.parar();
     if (t != TETRA) tetra_.parar();
@@ -204,6 +215,12 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
         wefax_.limpar();
         escrever(T("[WEFAX] esperando o tom de inicio (300 Hz) - a fase acerta a margem e as linhas por minuto sozinha\n"));
         break;
+    case FT8:
+    case FT4:
+        ft8_ = std::make_unique<Ft8Core>(kTaxa, t == FT4);
+        escrever(t == FT4 ? T("[FT4] iniciado - periodos de 7,5 s pelo relogio UTC do PC; a lista sai no fim de cada periodo\n")
+                          : T("[FT8] iniciado - periodos de 15 s pelo relogio UTC do PC; a lista sai no fim de cada periodo\n"));
+        break;
     case ANALISE:
         analise_ = std::make_unique<AnaliseCore>(kTaxa);
         escrever(T("[ANALISE] juntando 12 s de audio do sinal sintonizado...\n"));
@@ -226,7 +243,7 @@ void Decoders::parar()
     if (tipo_.load() == WEFAX) { wefax_.parar(); colherWefax(); }
     std::lock_guard<std::mutex> lk(coreMutex_);
     tipo_ = NENHUM;
-    cw_.reset(); rtty_.reset(); sitor_.reset(); dsc_.reset(); ale_.reset(); analise_.reset(); pactor_.reset();
+    cw_.reset(); rtty_.reset(); sitor_.reset(); dsc_.reset(); ale_.reset(); analise_.reset(); pactor_.reset(); ft8_.reset();
 }
 
 void Decoders::empurrar(const int16_t* pcm, size_t n, uint32_t sps)
@@ -418,6 +435,21 @@ void Decoders::alimentar(const float* x, size_t n)
                 if (pactorRelogio_ - pactorUltimo_ > 60)
                     saida = "\n[PACTOR-I] " + horaUtc() + " UTC" + (pactor_->indicativo().empty() ? "" : "  " + pactor_->indicativo()) + "\n" + saida;
                 pactorUltimo_ = pactorRelogio_;
+            }
+        }
+        else if (ft8_) {
+            ft8_->feed(x, n, utcAgora());
+            std::vector<Ft8Core::Mensagem> ms = ft8_->pegar();
+            const char sep = ft8_->ft4() ? '+' : '~';     // como o WSJT-X: ~ FT8, + FT4
+            for (const auto& m : ms) {
+                char b[96];
+                std::snprintf(b, sizeof b, "%06d %4d %5.1f %5.0f %c  ", m.hora, m.snr, m.dt, m.hz, sep);
+                saida += b + m.texto + "\n";
+            }
+            if (!ms.empty()) {
+                std::lock_guard<std::mutex> lt(textoMutex_);
+                for (auto& m : ms) ft8Novas_.push_back(std::move(m));
+                if (ft8Novas_.size() > 3000) ft8Novas_.erase(ft8Novas_.begin(), ft8Novas_.begin() + (ft8Novas_.size() - 3000));
             }
         }
         else if (dsc_) saida = TDsc(dsc_->feed(x, n));
@@ -668,6 +700,17 @@ std::string Decoders::estado()
         else if (s.estado == WefaxCore::INICIO) std::snprintf(b, sizeof b, kEst[1], s.ioc);
         else std::snprintf(b, sizeof b, T("%s  |  sinal %.0f dB  |  %d imagens recebidas"), kEst[s.estado], s.nivelDb, s.imagens);
     }
+    else if (ft8_) {
+        const double per = ft8_->periodo();
+        if (ft8_->decodificando())
+            std::snprintf(b, sizeof b, T("decodificando o periodo...  |  total %d mensagens"), ft8_->total());
+        else if (ft8_->esperandoInicio())
+            std::snprintf(b, sizeof b, T("esperando o proximo periodo (%.0f s)  |  entrou no meio de um"),
+                          per - ft8_->segundoNoPeriodo());
+        else
+            std::snprintf(b, sizeof b, T("%.0f de %.0f s  |  ultimo periodo: %d mensagens  |  total %d  |  audio %.0f dBFS"),
+                          ft8_->segundoNoPeriodo(), per, ft8_->noUltimoPeriodo(), ft8_->total(), ft8_->ultimoNivelDb());
+    }
     else if (analise_)
         std::snprintf(b, sizeof b, analiseFeita_ ? T("analise pronta - clique Reiniciar para medir de novo")
                                                  : T("juntando audio: %.0f de %.0f s"),
@@ -684,6 +727,7 @@ bool Decoders::travado()
     if (dsc_) return dsc_->sincronizado();
     if (ale_) return ale_->sincronizado();
     if (cw_) return cw_->ppm() > 0;
+    if (ft8_) return ft8_->noUltimoPeriodo() > 0;
     if (tipo_.load() == TETRA) return tetra_.estado().travado;
     if (tipo_.load() == SSTV) return sstv_.status().estado == SstvCore::RECEBENDO;
     if (tipo_.load() == WEFAX) return wefax_.status().estado == WefaxCore::RECEBENDO;
@@ -695,6 +739,21 @@ bool Decoders::travado()
         return t - std::max(e.ts[0].ultAtivo, e.ts[1].ultAtivo) < 2.0;
     }
     return false;
+}
+
+std::vector<Ft8Core::Mensagem> Decoders::pegarFt8()
+{
+    std::lock_guard<std::mutex> lk(textoMutex_);
+    std::vector<Ft8Core::Mensagem> r;
+    r.swap(ft8Novas_);
+    return r;
+}
+
+float Decoders::progressoFt8()
+{
+    std::lock_guard<std::mutex> lk(coreMutex_);
+    if (!ft8_) return 0;
+    return (float)std::clamp(ft8_->segundoNoPeriodo() / ft8_->periodo(), 0.0, 1.0);
 }
 
 float Decoders::progressoAnalise()

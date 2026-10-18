@@ -1,0 +1,11 @@
+ft8_lib - decodificador FT8/FT4 em C
+https://github.com/kgoba/ft8_lib  (commit 9fec6ca, 24/08/2025)
+Licenca MIT (arquivo LICENSE), (c) 2018 Karlis Goba.
+
+Usado pelo SDR990S em src/decoders/Ft8Core.cpp. Vieram so as pastas ft8/ e fft/
+(kiss_fft). A analise espectral (o "monitor" da pasta common/) foi reescrita
+em C++ dentro do Ft8Core.
+
+Mudancas para compilar no MSVC (marcadas com "SDR990S:" no codigo):
+ - ft8/decode.c : vetor de tamanho variavel s2[n_tones] -> s2[512]
+ - ft8/message.c: stpcpy (nao existe no MSVC) -> ftx_stpcpy local

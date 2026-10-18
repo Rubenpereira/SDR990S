@@ -299,9 +299,44 @@ void Ui::salvarEstado()
 // ===========================================================================
 //  Quadro
 // ===========================================================================
+// Teste remoto (igual ao captura.pedido): um arquivo teste.pedido ao lado do
+// exe, uma ordem por linha - "ligar", "freq 14074000", "modo USB",
+// "decoder FT8" (ou FT4 / NENHUM). O arquivo e apagado depois de lido.
+void Ui::lerPedidoTeste()
+{
+    static double proximo = 0;
+    if (agoraS() < proximo) return;
+    proximo = agoraS() + 1.0;
+    const std::string cam = pastaDoExe() + "\\teste.pedido";
+    std::ifstream f(cam);
+    if (!f) return;
+    std::vector<std::string> linhas;
+    for (std::string l; std::getline(f, l);) {
+        while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        if (!l.empty()) linhas.push_back(l);
+    }
+    f.close();
+    DeleteFileA(cam.c_str());
+    for (const auto& l : linhas) {
+        if (l == "ligar" && !r_.ligado()) ligarDesligar();
+        else if (l.rfind("freq ", 0) == 0) sintonizar((uint64_t)std::stoull(l.substr(5)), false);
+        else if (l.rfind("modo ", 0) == 0) mudarModo(l.substr(5));
+        else if (l == "ms") trocarMainSub();
+        else if (l == "main") ativar(0);
+        else if (l == "sub") ativar(1);
+        else if (l.rfind("decoder ", 0) == 0) {
+            const std::string n = l.substr(8);
+            const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : Decoders::NENHUM;
+            decAberta_ = t != Decoders::NENHUM;
+            escolherDecoder(t, true);
+        }
+    }
+}
+
 void Ui::quadro()
 {
     ImGuiIO& io = ImGui::GetIO();
+    lerPedidoTeste();
     if (!r_.aoVivo()) { centroMostrado_ = r_.centro(); taxaMostrada_ = r_.taxa(); }
     const double t = agoraS();
     // O que se desenha fica centrado em centroVisual_. Normalmente e o centro
@@ -2452,7 +2487,7 @@ void Ui::janelaSobre()
     ImGui::TextColored(ImVec4(0, 0.83f, 0.83f, 1), "SDR-990S v" RXSDR_VERSAO);
     ImGui::PopFont();
     ImGui::TextUnformatted(T("Receptor SDR que roda inteiro no Windows (7, 8, 10 e 11), sem navegador."));
-    ImGui::TextUnformatted(T("Portátil: não precisa instalar - a configuração fica no RXSDR.ini ao lado do programa."));
+    ImGui::TextUnformatted(T("Portátil: não precisa instalar - a configuração fica no SDR990S.ini ao lado do programa."));
     ImGui::TextUnformatted(T("RTL-SDR, RTL-TCP e SDRplay."));
     ImGui::Spacing();
     ImGui::TextUnformatted(T("Licença: uso livre e NÃO COMERCIAL, mantendo o crédito ao autor (LICENSE.txt)."));
@@ -3491,6 +3526,13 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
         // Para RTTY de radioamador em LSB existe o "Inverter".
         if (m != "USB") mudarModo("USB");
         if (t == Decoders::ALE) r_.setBanda(3000);   // o ALE vai ate 2750 Hz
+        if ((t == Decoders::FT8 || t == Decoders::FT4) && r_.banda() < 3000) r_.setBanda(3000);   // o FT8 vai ate ~3000 Hz
+        if (t == Decoders::FT8 || t == Decoders::FT4) {
+            // ja esta numa banda de radioamador: vai para a frequencia do FT8 (FT4) dela
+            const uint64_t hz = freqFt8NaBanda(r_.vfo(), t == Decoders::FT4);
+            if (hz && hz != r_.vfo()) { sintonizar(hz, false); decMudouFreq_ = true; }
+            sstvAumentar_ = true;    // a janela cresce para caber a lista
+        }
     }
 }
 
@@ -4033,6 +4075,142 @@ void Ui::painelWefax()
     }
 }
 
+// ---------------------------------------------------------------------------
+//  FT8 / FT4: frequencias (kHz do dial, USB), relogio e a lista
+// ---------------------------------------------------------------------------
+struct FreqFt8 { const char* banda; double khz; double ini, fim; };   // ini/fim = limites da banda (kHz)
+static const FreqFt8 kFreqFt8[] = {
+    {"160 m", 1840, 1800, 2000}, {"80 m", 3573, 3500, 4000}, {"60 m", 5357, 5250, 5450}, {"40 m", 7074, 7000, 7300},
+    {"30 m", 10136, 10100, 10150}, {"20 m", 14074, 14000, 14350}, {"17 m", 18100, 18068, 18168},
+    {"15 m", 21074, 21000, 21450}, {"12 m", 24915, 24890, 24990}, {"10 m", 28074, 28000, 29700},
+    {"6 m", 50313, 50000, 54000}, {"2 m", 144174, 144000, 148000},
+};
+static const FreqFt8 kFreqFt4[] = {
+    {"80 m", 3575, 3500, 4000}, {"40 m", 7047.5, 7000, 7300}, {"30 m", 10140, 10100, 10150}, {"20 m", 14080, 14000, 14350},
+    {"17 m", 18104, 18068, 18168}, {"15 m", 21140, 21000, 21450}, {"12 m", 24919, 24890, 24990},
+    {"10 m", 28180, 28000, 29700}, {"6 m", 50318, 50000, 54000}, {"2 m", 144170, 144000, 148000},
+};
+
+// Frequencia do FT8 (FT4) da banda de radioamador onde o VFO esta (0 = fora das bandas)
+uint64_t Ui::freqFt8NaBanda(uint64_t vfo, bool ft4)
+{
+    const FreqFt8* t = ft4 ? kFreqFt4 : kFreqFt8;
+    const int n = ft4 ? (int)(sizeof kFreqFt4 / sizeof kFreqFt4[0]) : (int)(sizeof kFreqFt8 / sizeof kFreqFt8[0]);
+    const double khz = vfo / 1000.0;
+    for (int i = 0; i < n; ++i)
+        if (khz >= t[i].ini && khz <= t[i].fim) return (uint64_t)std::llround(t[i].khz * 1000.0);
+    return 0;
+}
+
+void Ui::painelFt8()
+{
+    auto& d = r_.decoders();
+    const bool ft4 = decTipo_ == Decoders::FT4;
+    const FreqFt8* tab = ft4 ? kFreqFt4 : kFreqFt8;
+    const int n = ft4 ? (int)(sizeof kFreqFt4 / sizeof kFreqFt4[0]) : (int)(sizeof kFreqFt8 / sizeof kFreqFt8[0]);
+    int atual = -1;
+    for (int i = 0; i < n; ++i)
+        if (std::llabs((long long)r_.vfo() - std::llround(tab[i].khz * 1000.0)) < 1500) atual = i;
+    char nome[48];
+    if (atual >= 0) std::snprintf(nome, sizeof nome, "%s   %.1f kHz", tab[atual].banda, tab[atual].khz);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("Banda"));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(190 * s_);
+    if (ImGui::BeginCombo("##ft8banda", atual >= 0 ? nome : T("- escolha para sintonizar -"), ImGuiComboFlags_HeightLarge)) {
+        for (int i = 0; i < n; ++i) {
+            char b[48];
+            std::snprintf(b, sizeof b, "%s   %.1f kHz USB", tab[i].banda, tab[i].khz);
+            if (ImGui::Selectable(b, atual == i)) {
+                if (r_.modo() != "USB") mudarModo("USB");
+                if (r_.banda() < 3000) r_.setBanda(3000);
+                sintonizar((uint64_t)std::llround(tab[i].khz * 1000.0), false);
+                decMudouFreq_ = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+    ImGui::TextColored(ImVec4(1.f, 0.85f, 0.35f, 1.f), "UTC %02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+    ImGui::SameLine();
+    const float p = decRodando_ ? d.progressoFt8() : 0.f;
+    char rot[32];
+    std::snprintf(rot, sizeof rot, "%.1f / %.1f s", p * (ft4 ? 7.5f : 15.f), ft4 ? 7.5f : 15.f);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, IM_COL32(0x30, 0xa0, 0x50, 255));
+    ImGui::ProgressBar(p, ImVec2(170 * s_, 0), rot);
+    ImGui::PopStyleColor();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", T("Só recepção, em USB. O relógio do PC precisa estar certo (erro menor que 1 s): Windows > Data e hora > Sincronizar agora."));
+    ImGui::TextWrapped("%s", T("DT = atraso do sinal em segundos; perto de 0 = relógio certo. Se todos os DT passarem de +1 s (ou de -1 s), acerte o relógio."));
+    ImGui::PopStyleColor();
+}
+
+void Ui::tabelaFt8(bool chegou)
+{
+    const bool ft4 = decTipo_ == Decoders::FT4;
+    ImGui::Checkbox(T("Só CQ"), &ft8SoCq_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200 * s_);
+    ImGui::InputTextWithHint("##ft8busca", T("procurar (indicativo, grade...)"), ft8Busca_, sizeof ft8Busca_,
+                             ImGuiInputTextFlags_CharsUppercase);
+    std::vector<int> vis;
+    vis.reserve(ft8Msgs_.size());
+    const std::string busca = ft8Busca_;
+    for (int i = 0; i < (int)ft8Msgs_.size(); ++i) {
+        const auto& m = ft8Msgs_[i];
+        if (ft8SoCq_ && m.texto.rfind("CQ ", 0) != 0) continue;
+        if (!busca.empty() && m.texto.find(busca) == std::string::npos) continue;
+        vis.push_back(i);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled(T("%d de %d mensagens"), (int)vis.size(), (int)ft8Msgs_.size());
+
+    const ImGuiTableFlags fl = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
+                               ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x02, 0x06, 0x03, 255));
+    if (ImGui::BeginTable("##ft8tab", 5, fl, ImVec2(0, 0))) {
+        const bool noFim = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 30 * s_;
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("UTC", ImGuiTableColumnFlags_WidthFixed, 66 * s_);
+        ImGui::TableSetupColumn("dB", ImGuiTableColumnFlags_WidthFixed, 36 * s_);
+        ImGui::TableSetupColumn("DT", ImGuiTableColumnFlags_WidthFixed, 40 * s_);
+        ImGui::TableSetupColumn("Hz", ImGuiTableColumnFlags_WidthFixed, 48 * s_);
+        ImGui::TableSetupColumn(T("Mensagem"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        ImGui::PushFont(f_.mono);
+        ImGuiListClipper clip;
+        clip.Begin((int)vis.size());
+        while (clip.Step()) {
+            for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
+                const auto& m = ft8Msgs_[vis[r]];
+                ImGui::TableNextRow();
+                // uma faixa de cor por periodo, como no WSJT-X (pares e impares)
+                const int seg = (m.hora / 100 % 100) * 60 + m.hora % 100;
+                const bool par = ((int)((seg + 0.5) / (ft4 ? 7.5 : 15.0)) % 2) == 0;
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, par ? IM_COL32(0x08, 0x16, 0x0c, 255) : IM_COL32(0x12, 0x12, 0x20, 255));
+                ImU32 cor = IM_COL32(0xd8, 0xe8, 0xb0, 255);
+                if (m.texto.rfind("CQ ", 0) == 0) cor = IM_COL32(0x50, 0xff, 0x70, 255);
+                else if (m.texto.find(" RR73") != std::string::npos || m.texto.find(" 73") != std::string::npos)
+                    cor = IM_COL32(0x90, 0xa8, 0xc8, 255);
+                ImGui::PushStyleColor(ImGuiCol_Text, cor);
+                ImGui::TableSetColumnIndex(0); ImGui::Text("%06d", m.hora);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%3d", m.snr);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%4.1f", m.dt);
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%4.0f", m.hz);
+                ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(m.texto.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::PopFont();
+        // rola sozinho quando ja estava no fim (quem subiu para ler, fica)
+        if (chegou && noFim) ImGui::SetScrollY(ImGui::GetScrollMaxY() + 1000 * s_);
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleColor();
+}
+
 void Ui::janelaDecoders()
 {
     auto& d = r_.decoders();
@@ -4065,7 +4243,7 @@ void Ui::janelaDecoders()
     ImGui::SameLine();
     ImGui::SetNextItemWidth(200 * s_);
     if (ImGui::BeginCombo("##dectipo", Decoders::nome((Decoders::Tipo)decTipo_), ImGuiComboFlags_HeightLarge)) {
-        static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
+        static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::FT8, Decoders::FT4, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
                                      Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::HFDL, Decoders::AIS,
                                      Decoders::APRS, Decoders::ACARS, Decoders::VDL2, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
                                      Decoders::ANALISE};
@@ -4087,7 +4265,7 @@ void Ui::janelaDecoders()
     ImGui::SameLine();
     if (ImGui::Button(T("Reiniciar")) && decTipo_ != Decoders::NENHUM) escolherDecoder(decTipo_, false);
     ImGui::SameLine();
-    if (ImGui::Button(T("Limpar"))) { decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; }
+    if (ImGui::Button(T("Limpar"))) { decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear(); }
     ImGui::SameLine();
     if (ImGui::Button(T("Selecionar tudo"))) decSelTudo_ = true;
     ImGui::SameLine();
@@ -4097,7 +4275,7 @@ void Ui::janelaDecoders()
         std::string pasta = pastaDoExe() + "\\Decodificados";
         CreateDirectoryA(pasta.c_str(), nullptr);
         SYSTEMTIME st; GetLocalTime(&st);
-        static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR"};
+        static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4"};
         char nome[96];
         std::snprintf(nome, sizeof nome, "\\RXSDR_%s_%04d%02d%02d_%02d%02d%02d.txt",
                       decTipo_ > 0 && decTipo_ < Decoders::N_TIPOS ? kTag[decTipo_] : "DEC",
@@ -4595,6 +4773,10 @@ void Ui::janelaDecoders()
         }
         break;
     }
+    case Decoders::FT8:
+    case Decoders::FT4:
+        painelFt8();
+        break;
     case Decoders::SSTV:
         painelSstv();
         break;
@@ -4630,6 +4812,15 @@ void Ui::janelaDecoders()
     // --- texto ---
     const std::string novo = d.pegarTexto();
     if (!novo.empty()) anexarDecTexto(novo);
+    bool chegouFt8 = false;
+    for (auto& m : d.pegarFt8()) { ft8Msgs_.push_back(std::move(m)); chegouFt8 = true; }
+    if (ft8Msgs_.size() > 5000) ft8Msgs_.erase(ft8Msgs_.begin(), ft8Msgs_.begin() + (ft8Msgs_.size() - 5000));
+    if (decTipo_ == Decoders::FT8 || decTipo_ == Decoders::FT4) {
+        tabelaFt8(chegouFt8);    // o texto continua em decTexto_ (Copiar / Salvar .txt)
+        ImGui::End();
+        if (!aberta) { decAberta_ = false; escolherDecoder(Decoders::NENHUM, false); }
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x02, 0x06, 0x03, 255));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0x02, 0x06, 0x03, 255));
     if (ImGui::BeginChild("##dectexto", ImVec2(0, 0), ImGuiChildFlags_Borders)) {

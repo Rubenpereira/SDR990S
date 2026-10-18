@@ -25,6 +25,7 @@
 #include "Dsd.h"
 #include "Externos.h"
 #include "Tetra.h"
+#include "../decoders/Ft8Core.h"
 #include "../decoders/SstvCore.h"
 #include "../decoders/WefaxCore.h"
 
@@ -40,7 +41,7 @@ class PactorCore;
 
 class Decoders {
 public:
-    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, N_TIPOS };
+    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, N_TIPOS };
 
     struct Ajustes {
         float rttyBaud = 45.45f, rttyShift = 170.f;
@@ -80,6 +81,9 @@ public:
     std::string estado();         // linha curta de situacao
     bool travado();               // sincronizado agora (para o LED)
     float progressoAnalise();     // 0..1 (analise de sinal)
+    // FT8/FT4: as mensagens novas (a tela monta a tabela) e onde esta o periodo
+    std::vector<Ft8Core::Mensagem> pegarFt8();
+    float progressoFt8();         // 0..1 dentro do periodo de 15 s (FT4: 7,5 s)
 
     static const char* nome(Tipo t);
 
@@ -181,6 +185,8 @@ private:
     std::unique_ptr<AleCore> ale_;
     std::unique_ptr<AnaliseCore> analise_;
     std::unique_ptr<PactorCore> pactor_;
+    std::unique_ptr<Ft8Core> ft8_;      // FT8 e FT4
+    std::vector<Ft8Core::Mensagem> ft8Novas_;   // (textoMutex_)
     double pactorUltimo_ = -1e9;     // ultimo texto (para o cabecalho com a hora)
     double pactorRelogio_ = 0;      // segundos de audio ja passados
     bool analiseFeita_ = false;
