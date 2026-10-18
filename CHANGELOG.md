@@ -11,5 +11,5 @@ Primeira versão.
 - Redução de ruído e interferência: NB1/NB2, NR1/NR2 (NR ESPECTRAL ligado na instalação, força 10), NOTCH, BEF, A.NCH, BC, APF e PROC.
 - MAIN/SUB com LED do receptor em uso, SPLIT, TF-SET, TRACKING, RIT/XIT, memórias, QUICK MEMO e teclado de bandas com memória.
 - REC/STOP/PLAY, VOICE, TIMER, XVTR, captura da tela (F12) e escopo em tela cheia (SCP).
-- Decodificadores digitais do RXSDR Nativo.
+- Decodificadores digitais: CW, RTTY, DMR, TETRA, AIS, APRS, ACARS, HFDL, SSTV, WEFAX, DRM e outros.
 - Abre maximizado. Portátil: não precisa instalar.
