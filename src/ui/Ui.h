@@ -144,6 +144,10 @@ private:
     // estado da tela (vai para o .ini)
     float vol_ = 50, sql_ = -90, nb_ = 0, nr_ = 0, tom_ = 50, zoom_ = 0;
     float wfRange_ = 55, wfBrilho_ = 96, wfSpeed_ = 2, ganhoRf_ = 0;
+    // velocidade de cada cachoeira: wfSpeed_ = a de baixo, wfSpeedEsc_ = a do Band Scope.
+    // As linhas chegam no ritmo da mais rapida; a mais lenta junta linhas ao desenhar.
+    float wfSpeedEsc_ = 2, wfVelDesenho_ = 2;
+    int linhasMostradas(float hPx, int hMax) const;
     bool  nrEsp_ = false; float nrEspForca_ = 40;
     bool  mudo_ = false;
     int   passo_ = 1000;

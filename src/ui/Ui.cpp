@@ -66,6 +66,9 @@ constexpr ImU32 C_BTN      = IM_COL32(0x1a, 0x1a, 0x1a, 255);
 const char* const kFiltrosMem[5] = {"Mostrar todas", "Somente utilitárias", "Broadcast — no ar agora",
                                     "Broadcast — no ar, Américas", "Broadcast — todas"};   // traduzidos com T() ao mostrar
 
+// Cachoeira: linhas por segundo de cada Speed (1..10), como na pagina
+static const float kLinhasSegWf[] = {0, 5, 15, 30, 55, 90, 135, 190, 260, 350, 450};
+
 double agoraS()
 {
     using namespace std::chrono;
@@ -228,6 +231,7 @@ Ui::Ui(Radio& radio, IDirect3DDevice9* dev, const Fontes& f, float escala)
     wfRange_ = (float)c.dbl("wf_range", 53);
     wfBrilho_ = (float)c.dbl("wf_brilho", 106);
     wfSpeed_ = (float)c.dbl("wf_speed", 2);
+    wfSpeedEsc_ = (float)c.dbl("wf_speed_esc", wfSpeed_);
     autoWf_ = c.flag("wf_auto", true);
     nrEsp_ = c.flag("nr_esp", false);
     nrEspForca_ = (float)c.dbl("nr_esp_forca", 10);
@@ -267,8 +271,8 @@ Ui::~Ui()
 
 void Ui::carregarImagens()
 {
-    texSmeter_ = texturaDoRecurso(dev_, IDR_SMETER_PNG);
-    texOlho_ = texturaDoRecurso(dev_, IDR_OLHO_PNG);
+    texSmeter_ = nullptr;     // imagens da tela antiga: nao vem mais no exe (ver rxsdr.rc)
+    texOlho_ = nullptr;
 }
 
 void Ui::salvarEstado()
@@ -278,7 +282,7 @@ void Ui::salvarEstado()
     c.set("nb", (double)nb_);    c.set("nr", (double)nr_);
     c.set("tom", (double)tom_);  c.set("zoom", (double)zoom_);
     c.set("wf_range", (double)wfRange_); c.set("wf_brilho", (double)wfBrilho_);
-    c.set("wf_speed", (double)wfSpeed_); c.set("wf_auto", autoWf_);
+    c.set("wf_speed", (double)wfSpeed_); c.set("wf_speed_esc", (double)wfSpeedEsc_); c.set("wf_auto", autoWf_);
     c.set("nr_esp", nrEsp_); c.set("nr_esp_forca", (double)nrEspForca_);
     c.set("mudo", mudo_); c.set("passo", passo_);
     c.set("mem_regua", memVisivel_);
@@ -322,6 +326,8 @@ void Ui::lerPedidoTeste()
         else if (l.rfind("freq ", 0) == 0) sintonizar((uint64_t)std::stoull(l.substr(5)), false);
         else if (l.rfind("modo ", 0) == 0) mudarModo(l.substr(5));
         else if (l == "ms") trocarMainSub();
+        else if (l.rfind("velbaixo ", 0) == 0) wfSpeed_ = std::clamp((float)std::atof(l.c_str() + 9), 1.f, 10.f);
+        else if (l.rfind("velesc ", 0) == 0) wfSpeedEsc_ = std::clamp((float)std::atof(l.c_str() + 7), 1.f, 10.f);
         else if (l == "main") ativar(0);
         else if (l == "sub") ativar(1);
         else if (l.rfind("decoder ", 0) == 0) {
@@ -358,8 +364,8 @@ void Ui::quadro()
     // (O AUTO nao acompanha mais o piso sozinho: so ajusta quando clicado,
     //  com a aparencia guardada no PADRAO - igual era antes.)
     if (r_.aoVivo() && !fft_.bins.empty()) {
-        static const float kLinhasSeg[] = {0, 5, 15, 30, 55, 90, 135, 190, 260, 350, 450};
-        wfAcum_ += dt * kLinhasSeg[std::clamp((int)std::lround(wfSpeed_), 1, 10)];
+        // no ritmo da cachoeira mais rapida (a de baixo ou a do Band Scope)
+        wfAcum_ += dt * kLinhasSegWf[std::clamp((int)std::lround(std::max(wfSpeed_, wfSpeedEsc_)), 1, 10)];
         if (wfAcum_ >= 1.0) {
             const int n = (int)wfAcum_;
             if (!pausa_) for (int i = 0; i < std::min(n, 10); ++i) { linhaCachoeira(); linhaIf(); }
@@ -1540,6 +1546,16 @@ void Ui::linhaCachoeira()
     wfLinhas_ = std::min(wfLinhas_ + 1, wfH_);
 }
 
+// Quantas linhas da textura cabem em hPx pixels para a cachoeira que esta
+// sendo desenhada andar na velocidade dela (wfVelDesenho_): a mais rapida
+// mostra 1 linha por pixel; a mais lenta junta varias por pixel.
+int Ui::linhasMostradas(float hPx, int hMax) const
+{
+    const float rMax = kLinhasSegWf[std::clamp((int)std::lround(std::max(wfSpeed_, wfSpeedEsc_)), 1, 10)];
+    const float rV = kLinhasSegWf[std::clamp((int)std::lround(wfVelDesenho_), 1, 10)];
+    return std::clamp((int)std::lround(hPx * rMax / rV), 1, hMax);
+}
+
 void Ui::cachoeira(float x, float y, float w, float h)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1553,7 +1569,7 @@ void Ui::cachoeira(float x, float y, float w, float h)
         if (u0 < 0) { xa = x + (float)((0 - u0) / (u1 - u0) * w); u0 = 0; }
         if (u1 > 1) { xb = x + w - (float)((u1 - 1) / (u1 - u0) * w); u1 = 1; }
         const float ux0 = (float)u0, ux1 = (float)u1;
-        const int hd = std::min((int)h, wfH_);
+        const int hd = linhasMostradas(h, wfH_);
         const float esc = h / hd;
         const int p = wfPos_;
         if (p + hd <= wfH_) {
@@ -4997,7 +5013,7 @@ void Ui::ifDisplay(float x, float y, float w, float h)
     // --- cachoeira ---
     dl->AddRectFilled(ImVec2(x + 1, yw), ImVec2(x + w - 1, yw + hw), IM_COL32(0, 0, 32, 255));
     if (ifTex_ && r_.ligado() && hw > 2) {
-        const int hd = std::min((int)hw, ifH_);
+        const int hd = linhasMostradas(hw, ifH_);
         const float esc = hw / hd;
         const int p = ifPos_;
         if (p + hd <= ifH_) {

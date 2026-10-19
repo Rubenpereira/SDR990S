@@ -1338,6 +1338,7 @@ void Ui::medidorAnalogico(float x, float y, float w, float h)
 void Ui::escopo(float x, float y, float w, float h)
 {
     const ImVec2 a = M.p(x, y), b = M.p(x + w, y + h);
+    wfVelDesenho_ = wfSpeedEsc_;          // cachoeira do Band Scope (e o IF dentro dele)
     escopoTela(a.x, a.y, b.x - a.x, b.y - a.y, espFrac_, "##lcdEsc", ifOn_ && !baixoAtivo_);
 }
 
@@ -1477,6 +1478,25 @@ void Ui::areaBaixo(float x, float y, float w, float h)
             ImGui::EndPopup();
         }
     }
+    {   // VEL: velocidade das cachoeiras (a de baixo e a do Band Scope)
+        char rv[24];
+        std::snprintf(rv, sizeof rv, "VEL %.0fx", wfSpeed_);
+        if (bt(rv, 70, false, IM_COL32(0x40, 0xc8, 0xff, 255))) ImGui::OpenPopup("##vel990");
+        const bool sobre = ImGui::IsItemHovered();
+        if (sobre && ImGui::GetIO().MouseWheel != 0)
+            wfSpeed_ = std::clamp(wfSpeed_ + (ImGui::GetIO().MouseWheel > 0 ? 1.f : -1.f), 1.f, 10.f);
+        if (sobre) ImGui::SetTooltip("VEL: velocidade da cachoeira de baixo (%.0fx)  -  roda do mouse ajusta\n"
+                                     "Clique: as duas (a de baixo e a do Band Scope, que também está no KEY SPEED)", wfSpeed_);
+        if (ImGui::BeginPopup("##vel990")) {
+            ImGui::TextDisabled("Velocidade das cachoeiras (1 = devagar, 10 = rápida)");
+            int vb = (int)std::lround(wfSpeed_), ve = (int)std::lround(wfSpeedEsc_);
+            ImGui::SetNextItemWidth(220 * u);
+            if (ImGui::SliderInt("Cachoeira de baixo", &vb, 1, 10, "%dx")) wfSpeed_ = (float)vb;
+            ImGui::SetNextItemWidth(220 * u);
+            if (ImGui::SliderInt("Band Scope (KEY SPEED)", &ve, 1, 10, "%dx")) wfSpeedEsc_ = (float)ve;
+            ImGui::EndPopup();
+        }
+    }
     // a direita: receptor, modo, frequencia e hora UTC
     {
         SYSTEMTIME st; GetSystemTime(&st);
@@ -1488,7 +1508,8 @@ void Ui::areaBaixo(float x, float y, float w, float h)
         if (x + w - ts.x - 12 * u > bx) dl->AddText(ImVec2(x + w - ts.x - 12 * u, y + (hb - ts.y) * 0.5f), IM_COL32(0x40, 0xff, 0x70, 255), t);
         ImGui::PopFont();
     }
-    // IF DISPLAY + cachoeira
+    // IF DISPLAY + cachoeira (na velocidade da cachoeira de baixo)
+    wfVelDesenho_ = wfSpeed_;
     const float yy = y + hb + 2 * u, hh = h - hb - 2 * u;
     float xx = x;
     if (ifOn_) {
@@ -1800,11 +1821,11 @@ void Ui::controlesBaixo()
         wfRange_ = std::clamp(wfRange_ + dO * 100.f, 20.f, 120.f);
         autoWf_ = false;
     }
-    std::snprintf(d, sizeof d, "KEY SPEED: velocidade da cachoeira (%.0fx)\nDELAY: tempo para o squelch fechar (%.1f s)", wfSpeed_, sqlHang_);
-    if (giro("gKey", 481, 534, 25, "KEY SPEED", "DELAY", (wfSpeed_ - 1) / 9.f, sqlHang_ / 2.f, di, dO, d)) {
+    std::snprintf(d, sizeof d, "KEY SPEED: velocidade da cachoeira do Band Scope (%.0fx)\n(a de baixo: botão VEL na barra de baixo)\nDELAY: tempo para o squelch fechar (%.1f s)", wfSpeedEsc_, sqlHang_);
+    if (giro("gKey", 481, 534, 25, "KEY SPEED", "DELAY", (wfSpeedEsc_ - 1) / 9.f, sqlHang_ / 2.f, di, dO, d)) {
         static float acc = 0; acc += di * 9.f;
-        while (acc >= 1) { wfSpeed_ = std::min(10.f, wfSpeed_ + 1); acc -= 1; }
-        while (acc <= -1) { wfSpeed_ = std::max(1.f, wfSpeed_ - 1); acc += 1; }
+        while (acc >= 1) { wfSpeedEsc_ = std::min(10.f, wfSpeedEsc_ + 1); acc -= 1; }
+        while (acc <= -1) { wfSpeedEsc_ = std::max(1.f, wfSpeedEsc_ - 1); acc += 1; }
         sqlHang_ = std::clamp(sqlHang_ + dO * 2.f, 0.f, 2.f);
     }
     std::snprintf(d, sizeof d, "CW PITCH: altura do tom do CW e centro do APF (%.0f Hz)\nMONITOR: altura do espectro em relação à cachoeira (%d%%)",

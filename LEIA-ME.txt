@@ -67,7 +67,8 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
    MIC / VOX GAIN       tonalidade / margem do squelch automatico
    PROC IN / PROC OUT   forca do compressor / retorno do S-meter
    PWR / CAR            brilho / contraste da cachoeira
-   KEY SPEED / DELAY    velocidade da cachoeira / demora do squelch para fechar
+   KEY SPEED / DELAY    velocidade da cachoeira do Band Scope / demora do squelch
+   VEL (barra de baixo) velocidade da cachoeira de baixo; clique = as duas
    CW PITCH / MONITOR   tom do CW (e do APF) / altura espectro x cachoeira
  Modos
    LSB/USB, CW, FM/AM (segurar: FM largo), FSK/PSK (decodificador RTTY),

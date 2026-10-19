@@ -10,6 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <dwmapi.h>
 #include <d3d9.h>
 #include <mmsystem.h>
 
@@ -265,6 +266,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int)
     const std::wstring titulo = std::wstring(L"SDR-990S  " RXSDR_VERSAO_W);
     HWND hwnd = CreateWindowW(wc.lpszClassName, titulo.c_str(), WS_OVERLAPPEDWINDOW,
                               jx, jy, jw, jh, nullptr, nullptr, hInst, nullptr);
+    {   // Windows 11: barra de titulo roxa com o titulo em branco, so nesta janela.
+        // (DWMWA_BORDER_COLOR = 34, DWMWA_CAPTION_COLOR = 35, DWMWA_TEXT_COLOR = 36;
+        //  no Windows 7 e 10 o pedido e ignorado e a barra fica a do sistema)
+        const COLORREF roxo = RGB(38, 2, 51), branco = RGB(0xff, 0xff, 0xff);
+        DwmSetWindowAttribute(hwnd, 35, &roxo, sizeof roxo);
+        DwmSetWindowAttribute(hwnd, 36, &branco, sizeof branco);
+        DwmSetWindowAttribute(hwnd, 34, &roxo, sizeof roxo);
+    }
     if (!criarD3D(hwnd)) {
         MessageBoxW(hwnd, L"Não foi possível iniciar o Direct3D 9 (placa de vídeo).", L"SDR-990S", MB_ICONERROR);
         return 1;
