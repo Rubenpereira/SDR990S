@@ -124,6 +124,6 @@ FT8 e FT4 (DATA ou PF A > Decodificador > FT8)
    Configuracoes > Hora e idioma > Data e hora > Sincronizar agora. Se todos
    os DT passarem de +1 s, o relogio esta adiantado; abaixo de -1 s, atrasado.
 
-Licenca: software livre, GNU GPL versao 3 ou posterior (LICENSE.txt).
+Licenca: uso livre e NAO COMERCIAL, mantendo o credito ao autor (LICENSE.txt).
 Os decodificadores da pasta decoders sao de outros autores e seguem a licenca
 de cada um (lista e enderecos do codigo-fonte em TERCEIROS.txt).

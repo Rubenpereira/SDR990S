@@ -37,7 +37,6 @@
 !/SUBIR_GITHUB.bat
 !/PUBLICAR_RELEASE.bat
 !/publicar_release.ps1
-!/BAIXAR_ASSINADO.bat
 
 # compilacao automatica no GitHub (e a assinatura SignPath)
 !/.github/

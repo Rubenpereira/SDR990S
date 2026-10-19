@@ -125,7 +125,7 @@ const Par kTextos[] = {
     {"Receptor SDR que roda inteiro no Windows (7, 8, 10 e 11), sem navegador.", "SDR receiver that runs entirely on Windows (7, 8, 10 and 11), no browser needed."},
     {"Portátil: não precisa instalar - a configuração fica no SDR990S.ini ao lado do programa.", "Portable: no installation needed - settings are kept in SDR990S.ini next to the program."},
     {"RTL-SDR, RTL-TCP e SDRplay.", "RTL-SDR, RTL-TCP and SDRplay."},
-    {"Licença: software livre, GNU GPL versão 3 ou posterior (LICENSE.txt).", "License: free software, GNU GPL version 3 or later (LICENSE.txt)."},
+    {"Licença: uso livre e NÃO COMERCIAL, mantendo o crédito ao autor (LICENSE.txt).", "License: free NON-COMMERCIAL use, keeping the credit to the author (LICENSE.txt)."},
     {"Decodificadores da pasta decoders: de outros autores, com a licença de cada um (TERCEIROS.txt).", "Programs in the decoders folder: by other authors, each under its own license (TERCEIROS.txt)."},
     {"Tela: Dear ImGui (MIT).  Imagens: stb_image (domínio público).", "UI: Dear ImGui (MIT).  Images: stb_image (public domain)."},
     {"%d na lista com \"%s\"", "%d in the list matching \"%s\""},
