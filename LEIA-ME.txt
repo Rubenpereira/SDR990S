@@ -64,7 +64,9 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
  Embaixo
    VOX   squelch automatico               PROC  compressor de audio
    FBK   decodificador de CW              MONI  saida de som (placa/fone)
-   MIC / VOX GAIN       tonalidade / margem do squelch automatico
+   MIC / VOX GAIN       tonalidade / squelch MANUAL do receptor ativo
+                        (gire a direita fecha, a esquerda abre; vale
+                        tambem depois do automatico do VOX)
    PROC IN / PROC OUT   forca do compressor / retorno do S-meter
    PWR / CAR            brilho / contraste da cachoeira
    KEY SPEED / DELAY    velocidade da cachoeira do Band Scope / demora do squelch
@@ -80,7 +82,8 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
         e os botoes de cada coluna ficam no lugar. O LED verde mostra o receptor
         que esta tocando: para trocar, MAIN RX / SUB RX (ou F5).
    SQL na tela: o squelch daquele receptor esta ligado (vermelho = fechando o som
-        agora). Para abrir: tecla SEL/VOX acesa, ou o anel SQL do NOTCH/SQL.
+        agora). Para abrir: tecla SEL/VOX acesa, o anel VOX GAIN do MIC ou o
+        anel SQL do NOTCH/SQL.
    TF-SET  segurando, escuta a frequencia marcada como TX
  Bandas e memoria
    RX ANT  Bias-T (antena ativa)   DRV  tira o risco do DC   XVTR  upconverter

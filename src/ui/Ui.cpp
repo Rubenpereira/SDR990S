@@ -383,6 +383,7 @@ void Ui::quadro()
                 float topo = -200, soma = 0;
                 for (float a : sqlAmostras_) { topo = std::max(topo, a); soma += a; }
                 sql_ = std::clamp(std::round(topo + sqlMargem_), -90.f, 30.f);
+                sqlAuto_[ativo_] = sql_ > -90.f;
                 char d[160];
                 std::snprintf(d, sizeof d, T("Ruído medido: pico %.0f dB, médio %.0f dB. Squelch em %.0f dB. Clique de novo para medir outra vez."),
                               topo, soma / sqlAmostras_.size(), sql_);

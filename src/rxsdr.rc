@@ -7,8 +7,8 @@ IDI_APP        ICON    "../assets/app.ico"
 //  antivirus que olham a entropia dos recursos)
 
 1 VERSIONINFO
- FILEVERSION 1,1,3,0
- PRODUCTVERSION 1,1,3,0
+ FILEVERSION 1,1,4,0
+ PRODUCTVERSION 1,1,4,0
  FILEOS 0x40004
  FILETYPE 0x1
 BEGIN
@@ -18,9 +18,9 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "SDR-990S"
       VALUE "FileDescription", "SDR-990S - receptor SDR com painel de radio"
-      VALUE "FileVersion", "1.1.3"
+      VALUE "FileVersion", "1.1.4"
       VALUE "ProductName", "SDR-990S"
-      VALUE "ProductVersion", "1.1.3"
+      VALUE "ProductVersion", "1.1.4"
       VALUE "OriginalFilename", "SDR990S.exe"
     END
   END

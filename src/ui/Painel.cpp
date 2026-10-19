@@ -884,6 +884,7 @@ void Ui::carregarPainel()
     procNivel_ = (float)c.dbl("p_procn", 0.5);
     cwPitch_ = (float)std::clamp(c.dbl("p_pitch", 700), 300.0, 1000.0);
     sqlMargem_ = (float)c.dbl("p_sqlm", 2); sqlHang_ = (float)c.dbl("p_sqlh", 0.3);
+    sqlAuto_[0] = c.flag("p_sqlauto0", false); sqlAuto_[1] = c.flag("p_sqlauto1", false);
     paleta_ = (int)std::clamp(c.num("p_paleta", 0), 0LL, 3LL); g_paletaCachoeira = paleta_;
     rxeq_ = (int)std::clamp(c.num("p_rxeq", 0), 0LL, 4LL);
     painelFrac_ = (float)std::clamp(c.dbl("p_painel_frac", 0.66), 0.3, 1.0);
@@ -936,6 +937,7 @@ void Ui::salvarPainel()
     c.set("p_nb1", (double)nbNivel_); c.set("p_nb2", (double)nb2Nivel_); c.set("p_nr1", (double)nrNivel_);
     c.set("p_procn", (double)procNivel_); c.set("p_pitch", (double)cwPitch_);
     c.set("p_sqlm", (double)sqlMargem_); c.set("p_sqlh", (double)sqlHang_);
+    c.set("p_sqlauto0", sqlAuto_[0]); c.set("p_sqlauto1", sqlAuto_[1]);
     c.set("p_paleta", paleta_); c.set("p_rxeq", rxeq_);
     c.set("p_painel_frac", (double)painelFrac_); c.set("p_esp_baixo", (double)fracBaixo_);
     for (int b = 0; b < 10 && b < (int)bandaMem_.size(); ++b) {
@@ -1771,14 +1773,16 @@ void Ui::teclasF()
 // Teclas e botoes de baixo (VOX, PROC, FBK, MONI e os 5 botoes duplos)
 void Ui::controlesBaixo()
 {
-    {   // VOX = squelch automatico, liga/desliga: aceso = squelch fechando o chiado
+    {   // VOX = squelch automatico, liga/desliga: aceso = squelch medido pelo automatico
         Receptor& Rv = rx_[ativo_];
-        const bool ligado = sqlMedindo_ || Rv.sql > -90.f;
+        if (Rv.sql <= -90.f) sqlAuto_[ativo_] = false;
+        const bool ligado = sqlAuto_[ativo_];
         if (tecla("kVox", "VOX", 150, 446, 46, 15, sqlMedindo_ ? 3 : ligado ? 2 : 0, "SEL",
-                  "VOX: squelch automático.\nClique: mede o ruído por 4 s e fecha o squelch logo acima (a margem é o VOX GAIN).\n"
-                  "Clique de novo: desliga e o áudio volta (squelch aberto).")) {
-            if (sqlMedindo_) { sqlMedindo_ = false; Rv.sql = -90.f; sql_ = -90.f; sqlAplicado_ = -90.f; }
-            else if (Rv.sql > -90.f) { Rv.sql = -90.f; sql_ = -90.f; sqlAplicado_ = -90.f; aviso("Squelch aberto"); }
+                  "VOX: squelch automático.\nClique: mede o ruído por 4 s e fecha o squelch logo acima.\n"
+                  "Aceso: clique de novo para desligar (squelch aberto).\n"
+                  "Ajuste fino à mão: anel de fora do MIC/VOX GAIN.")) {
+            if (sqlMedindo_) { sqlMedindo_ = false; Rv.sql = -90.f; sql_ = -90.f; sqlAplicado_ = -90.f; sqlAuto_[ativo_] = false; }
+            else if (ligado) { Rv.sql = -90.f; sql_ = -90.f; sqlAplicado_ = -90.f; sqlAuto_[ativo_] = false; aviso("Squelch aberto"); }
             else if (r_.aoVivo()) { sqlMedindo_ = true; sqlAmostras_.clear(); sqlIni_ = agora(); sqlUlt_ = 0; }
         }
     }
@@ -1802,11 +1806,28 @@ void Ui::controlesBaixo()
         ImGui::EndPopup();
     }
     float di, dO; char d[220];
-    std::snprintf(d, sizeof d, "MIC: tonalidade do áudio (%s %d%%)\nVOX GAIN: margem do squelch automático (%.0f dB)",
-                  tom_ < 45 ? "grave" : tom_ > 55 ? "agudo" : "plano", (int)std::lround(std::fabs(tom_ - 50) * 2), sqlMargem_);
-    if (giro("gMic", 173, 534, 25, "MIC", "VOX GAIN", tom_ / 100.f, sqlMargem_ / 10.f, di, dO, d)) {
-        tom_ = std::clamp(tom_ + di * 100.f, 0.f, 100.f); if (di != 0) rxeq_ = 0;
-        sqlMargem_ = std::clamp(sqlMargem_ + dO * 10.f, 0.f, 10.f);
+    {   // MIC = tonalidade; VOX GAIN (anel de fora) = squelch manual do receptor ativo
+        Receptor& Rs = rx_[ativo_];
+        char sq[24];
+        if (Rs.sql <= -90.f) std::snprintf(sq, sizeof sq, "aberto");
+        else std::snprintf(sq, sizeof sq, "%+d dB", (int)std::lround(Rs.sql));
+        std::snprintf(d, sizeof d, "MIC: tonalidade do áudio (%s %d%%)\nVOX GAIN: squelch manual do %s (%s)\n"
+                      "Gire para a direita para fechar, para a esquerda para abrir.\nVale também depois do automático (VOX).",
+                      tom_ < 45 ? "grave" : tom_ > 55 ? "agudo" : "plano", (int)std::lround(std::fabs(tom_ - 50) * 2),
+                      ativo_ == 0 ? "MAIN" : "SUB", sq);
+        if (giro("gMic", 173, 534, 25, "MIC", "VOX GAIN", tom_ / 100.f, (Rs.sql + 90.f) / 120.f, di, dO, d)) {
+            tom_ = std::clamp(tom_ + di * 100.f, 0.f, 100.f); if (di != 0) rxeq_ = 0;
+            if (dO != 0) {
+                if (sqlMedindo_) sqlMedindo_ = false;          // mexeu a mao: vale o manual
+                static float accSql = 0;
+                accSql += dO * 100.f;                          // roda: 2 dB por dente
+                const float passo = std::trunc(accSql);
+                accSql -= passo;
+                Rs.sql = std::clamp(std::round(Rs.sql + passo), -90.f, 30.f);
+                sql_ = Rs.sql; sqlAplicado_ = Rs.sql;
+                if (Rs.sql <= -90.f) sqlAuto_[ativo_] = false;
+            }
+        }
     }
     std::snprintf(d, sizeof d, "PROC IN: força do compressor de áudio (%d%%)\nPROC OUT: retorno do ponteiro do S-meter (%.1f s)",
                   (int)std::lround(procNivel_ * 100), smRetorno_);

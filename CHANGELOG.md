@@ -1,5 +1,10 @@
 # SDR990S - histórico
 
+## SDR990S 1.1.4
+
+- Squelch manual no anel de fora do MIC/VOX GAIN: gire para a direita para fechar e para a esquerda para abrir, no receptor ativo. Funciona sozinho ou depois do squelch automático (SEL/VOX), para fazer o ajuste fino.
+- SEL/VOX continua sendo o squelch automático: acende quando o squelch foi medido por ele.
+
 ## SDR990S 1.1.3
 
 - Licença: agora software livre, GNU GPL versão 3 ou posterior.

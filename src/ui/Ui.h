@@ -356,6 +356,7 @@ private:
     bool pausa_ = false, modoCentro_ = false, tracking_ = false, proc_ = false, sendMudo_ = false;
     bool tfSet_ = false, tfAtivoAntes_ = false;
     float nbNivel_ = 40, nb2Nivel_ = 0.5f, nrNivel_ = 40, procNivel_ = 0.5f, cwPitch_ = 700, sqlMargem_ = 2, sqlHang_ = 0.3f;
+    bool sqlAuto_[2] = {false, false};   // squelch do receptor veio do automatico (VOX aceso)
     double sqlUltAberto_ = 0, sleepAte_ = 0;
     int paleta_ = 0, rxeq_ = 0;
     float angDialA_ = 0, angDialB_ = 0, angRit_ = 0, angMulti_ = 0;
