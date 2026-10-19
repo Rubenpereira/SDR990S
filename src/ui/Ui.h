@@ -102,6 +102,9 @@ private:
     void lerPedidoTeste();          // teste.pedido ao lado do exe (teste remoto)
     void arcoVfo();                 // escala em meia-lua da tela SUB (gira com o VFO)
     void trocarMainSub();           // tecla M/S
+    // roda do mouse em cima de um digito da frequencia (texto alinhado a direita em xDir)
+    void rodaDigitos(ImFont* f, float tam, float xDir, float y, const std::string& s, int rx, uint64_t pesoUltimo);
+    void mudarFreqRx(int rx, int64_t deltaHz);
     double arcoF_ = 0;              // frequencia que a escala mostra (segue o VFO suavemente)
     double arcoResto_ = 0;          // Hz arrastados que ainda nao deram um passo
     void autoCachoeira();                 // botao AUTO (igual a pagina)

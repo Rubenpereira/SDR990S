@@ -1,5 +1,11 @@
 # SDR990S - histórico
 
+## SDR990S 1.1.2
+
+- Roda do mouse em cima de um dígito de qualquer frequência (VFO da tela principal, a linha do outro receptor e as duas da tela MAIN/SUB) muda aquele dígito; o dígito embaixo do mouse fica sublinhado.
+- S-meter mais parecido com o do rádio: escalas S, PO, SWR, Id e COMP em arcos abertos, faixa do ALC com a seta e o Vd; ponteiro longo cruzando todas.
+- Escala em meia-lua do VFO com o cubo escuro embaixo, no meio, como no rádio.
+
 ## SDR990S 1.1.1
 
 - Decodificador FT8 e FT4 (só recepção), dentro do programa, com o ft8_lib (MIT). Lista com hora UTC, dB, DT, Hz e mensagem; CQ em verde; filtro "Só CQ" e busca; lista de bandas (160 m a 2 m); ao escolher, o rádio vai para USB e para a frequência do FT8 da banda em que está.

@@ -623,6 +623,50 @@ void Ui::mudarModoPainel(const std::string& m)
     if (zoom_ > 0) centrarParaZoom(true);
 }
 
+// Roda do mouse em cima de um digito de uma frequencia do painel: aquele
+// digito sobe/desce (como no RXSDR). s e o texto desenhado alinhado a direita
+// em xDir; pesoUltimo = quanto vale o ultimo digito (1 Hz, ou 1 kHz quando a
+// parte dos Hz e desenhada separada). O digito embaixo do mouse fica sublinhado.
+void Ui::rodaDigitos(ImFont* f, float tam, float xDir, float y, const std::string& s, int rx, uint64_t pesoUltimo)
+{
+    if (!ImGui::IsWindowHovered()) return;          // outra janela (decoders, menu) por cima
+    ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float xr = xDir;
+    uint64_t peso = pesoUltimo;
+    for (int j = (int)s.size() - 1; j >= 0; --j) {
+        const char c[2] = {s[(size_t)j], 0};
+        const float wc = larguraTexto(f, tam, c);
+        if (c[0] >= '0' && c[0] <= '9') {
+            const float tr = tamReal(tam);              // o mesmo tamanho que o texto() usou
+            const ImVec2 a = M.p(xr - wc, y + tr * 0.08f), b = M.p(xr, y + tr * 0.92f);
+            if (ImGui::IsMouseHoveringRect(a, b, false)) {
+                dl->AddLine(ImVec2(a.x + 1, b.y + M.d(0.6f)), ImVec2(b.x - 1, b.y + M.d(0.6f)), P_CIANO, std::max(1.5f, M.d(1.f)));
+                if (io.MouseWheel != 0) {
+                    int n = (int)std::lround(io.MouseWheel);
+                    if (n == 0) n = io.MouseWheel > 0 ? 1 : -1;
+                    mudarFreqRx(rx, (int64_t)n * (int64_t)peso);
+                    io.MouseWheel = 0;                  // a roda e deste digito (nao rola mais nada)
+                }
+            }
+            if (peso < 1000000000ULL) peso *= 10;
+        }
+        xr -= wc;
+    }
+}
+
+void Ui::mudarFreqRx(int rx, int64_t d)
+{
+    if (rx < 0 || rx > 1 || d == 0) return;
+    Receptor& R = rx_[rx];
+    if (R.lock || R.memModo) return;
+    const uint64_t f = rx == ativo_ ? r_.vfo() : R.f;
+    const int64_t nf = (int64_t)f + d;
+    if (nf < 1000 || nf > 2000000000LL) return;
+    if (rx == ativo_) sintonizar((uint64_t)nf, false);
+    R.f = (uint64_t)nf;
+}
+
 // M/S: so a "banda" (frequencia, modo, filtro, memoria) troca de lado; os
 // knobs e teclas de cada coluna (AF/RF, SQL, NB, NR, NOTCH, AGC, MUTE...) sao
 // fisicos e continuam no lugar - antes o squelch fechado de um ia para o outro
@@ -1137,59 +1181,151 @@ void Ui::medidorAnalogico(float x, float y, float w, float h)
                                 IM_COL32(0xd8, 0xd2, 0xc0, 255), IM_COL32(0xd8, 0xd2, 0xc0, 255));
     dl->AddRect(a, b, IM_COL32(0x60, 0x60, 0x60, 255), 0, 0, M.d(0.8f));
     dl->PushClipRect(a, b, true);
-    // mesma geometria do ponteiro do RXSDR: pivo embaixo, -128,1 + 78,2*pos graus
+    // Geometria como a do medidor do radio: pivo bem abaixo do mostrador,
+    // arcos grandes e abertos (o de cima pega ~80% da largura), +-29 graus.
     const float sx = w / 900.f, sy = h / 450.f;
     auto ponto = [&](float pos, float raio) {
-        const float an = (float)((-128.1 + 78.2 * pos) * kPi / 180.0);
-        return ImVec2(x + (406 + raio * std::cos(an)) * sx, y + (625 + raio * std::sin(an)) * sy);
+        const float an = (float)((-90.0 + (pos - 0.5) * 58.0) * kPi / 180.0);
+        return ImVec2(x + (450 + raio * std::cos(an)) * sx, y + (877 + raio * std::sin(an)) * sy);
     };
     const float sPos[] = {0.06f, 0.117f, 0.17f, 0.224f, 0.282f, 0.34f, 0.392f, 0.444f, 0.495f, 0.546f};
     const float dbPos[] = {0.62f, 0.693f, 0.77f, 0.845f, 0.92f, 0.996f};
     const ImU32 preto = IM_COL32(0x10, 0x10, 0x10, 255), verm = IM_COL32(0xd0, 0x10, 0x10, 255);
-    for (int i = 0; i < 59; ++i) {        // arco
-        const float p0 = 0.06f + i * (0.94f / 59), p1 = p0 + 0.94f / 59;
-        const ImVec2 q0 = ponto(p0, 470), q1 = ponto(p1, 470);
-        dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), p0 < 0.546f ? preto : verm, M.d(1.2f));
-    }
+    // Escalas como no medidor do radio, em arcos em volta do mesmo pivo:
+    // S (o ponteiro le esta), PO, SWR, Id, COMP, a faixa do ALC e o Vd.
+    // Num receptor so o S anda; as outras ficam de enfeite, como no radio em RX.
+    const ImU32 cinza = IM_COL32(0x22, 0x22, 0x22, 255);
+    auto txMed = [&](float tamPapel, float bx, float by, ImU32 cor, const char* t, float alin) {
+        // escalas pequenas: tamanho direto (sem o aumento dos rotulos), minimo legivel
+        const float px = std::max(M.d(tamPapel), 6.5f);
+        ImFont* fo = melhor(f_.painel, px);
+        const ImVec2 ts = fo->CalcTextSizeA(px, FLT_MAX, 0, t);
+        const ImVec2 q = M.p(bx, by);
+        dl->AddText(fo, px, ImVec2(std::floor(q.x - ts.x * alin), std::floor(q.y - ts.y * 0.5f)), cor, t);
+    };
+    auto arco = [&](float p0, float p1, float raio, ImU32 cor, float esp) {
+        const int n = 40;
+        for (int k = 0; k < n; ++k) {
+            const ImVec2 q0 = ponto(p0 + (p1 - p0) * k / n, raio), q1 = ponto(p0 + (p1 - p0) * (k + 1) / n, raio);
+            dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), cor, M.d(esp));
+        }
+    };
+    auto marca = [&](float pos, float r0, float r1, ImU32 cor, float esp) {
+        const ImVec2 q0 = ponto(pos, r0), q1 = ponto(pos, r1);
+        dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), cor, M.d(esp));
+    };
+    auto pontinho = [&](float pos, float raio, ImU32 cor) {
+        const ImVec2 q = ponto(pos, raio);
+        dl->AddCircleFilled(M.p(q.x, q.y), M.d(0.55f), cor, 6);
+    };
+    auto rotuloEsq = [&](float pos, float raio, const char* t) {   // S, PO, SWR... na coluna da esquerda
+        const ImVec2 q = ponto(pos, raio);
+        txMed(4.6f, q.x - 1.5f, q.y, cinza, t, 1.f);
+    };
+    // --- S: 1..9 em preto, +20/+40/+60 dB em vermelho (numeros por cima do arco)
+    arco(0.06f, 0.546f, 765, preto, 1.2f);
+    arco(0.546f, 0.996f, 765, verm, 1.6f);
     for (int i = 0; i < 10; ++i) {
-        const ImVec2 q0 = ponto(sPos[i], 470), q1 = ponto(sPos[i], (i % 2) ? 515.f : 500.f);
-        dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), preto, M.d(1.f));
+        marca(sPos[i], 765, (i % 2) ? 805.f : 790.f, preto, 1.f);
         if (i % 2 == 1) {
             char t[4]; std::snprintf(t, sizeof t, "%d", i);
-            const ImVec2 q = ponto(sPos[i], 570);
+            const ImVec2 q = ponto(sPos[i], 840);
             texto(f_.painel, 7.f, q.x, q.y - 4, preto, t, 0.5f);
         }
+        if (i < 9) pontinho((sPos[i] + sPos[i + 1]) * 0.5f, 777, preto);
     }
     for (int i = 0; i < 6; ++i) {
-        const ImVec2 q0 = ponto(dbPos[i], 470), q1 = ponto(dbPos[i], (i % 2) ? 515.f : 500.f);
-        dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), verm, M.d(1.f));
+        marca(dbPos[i], 765, (i % 2) ? 805.f : 790.f, verm, 1.f);
         if (i % 2 == 1) {
-            const char* t[] = {"", "+20", "", "+40", "", "+60"};
-            const ImVec2 q = ponto(dbPos[i], 575);
-            texto(f_.painel, 6.2f, q.x, q.y - 4, verm, t[i], 0.5f);
+            const char* t[] = {"", "+20", "", "+40", "", "+60dB"};
+            const ImVec2 q = ponto(dbPos[i], 842);
+            texto(f_.painel, 6.f, q.x, q.y - 4, verm, t[i], i == 5 ? 0.75f : 0.5f);
         }
     }
-    texto(f_.painel, 8.f, x + 5, y + 3, preto, "S");
-    texto(f_.painel, 6.f, x + w - 4, y + 3, verm, "dB", 1.f);
-    // segunda escala: nivel de audio (no lugar do PO, AF)
-    for (int i = 0; i < 40; ++i) {
-        const float p0 = 0.15f + i * (0.7f / 40), p1 = p0 + 0.7f / 40;
-        const ImVec2 q0 = ponto(p0, 380), q1 = ponto(p1, 380);
-        dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), IM_COL32(0x30, 0x30, 0x30, 255), M.d(0.8f));
-    }
+    rotuloEsq(0.045f, 765, "S");
+    // --- PO (W): 0..250, escala quadratica como a de potencia
     {
-        const ImVec2 q = ponto(0.12f, 365);
-        texto(f_.painel, 5.2f, q.x - 2, q.y - 3, IM_COL32(0x30, 0x30, 0x30, 255), "AF", 1.f);
-        const float n = std::clamp(olho_, 0.f, 1.f);
-        for (int i = 0; i < (int)(40 * n); ++i) {
-            const float p0 = 0.15f + i * (0.7f / 40), p1 = p0 + 0.7f / 40;
-            const ImVec2 q0 = ponto(p0, 368), q1 = ponto(p1, 368);
-            dl->AddLine(M.p(q0.x, q0.y), M.p(q1.x, q1.y), IM_COL32(0x20, 0x70, 0xd0, 255), M.d(1.8f));
+        const float a0 = 0.10f, a1 = 0.95f, R = 712;
+        auto pw = [&](float w) { return a0 + (a1 - a0) * std::sqrt(w / 250.f); };
+        arco(a0, a1, R, cinza, 0.9f);
+        const float rot[] = {0, 25, 50, 100, 150, 200, 250};
+        const char* rt[] = {"0", "25", "50", "100", "150", "200", "250W"};
+        for (int k = 0; k < 7; ++k) {
+            marca(pw(rot[k]), R, R + 12, cinza, 0.9f);
+            const ImVec2 q = ponto(pw(rot[k]), R - 24);
+            txMed(4.3f, q.x, q.y, cinza, rt[k], k == 6 ? 0.8f : 0.5f);
         }
+        const float mn[] = {5, 10, 15, 20, 35, 75, 125, 175, 225};
+        for (float m : mn) pontinho(pw(m), R + 6, cinza);
+        rotuloEsq(a0 - 0.012f, R, "PO");
+    }
+    // --- SWR: 1  1.5  2  3  infinito
+    {
+        const float a0 = 0.15f, a1 = 0.89f, R = 660;
+        auto sw = [&](float f) { return a0 + (a1 - a0) * f; };
+        arco(a0, a1, R, cinza, 0.9f);
+        const float fr[] = {0.f, 0.3f, 0.48f, 0.7f, 1.f};
+        const char* rt[] = {"1", "1.5", "2", "3", "\xE2\x88\x9E"};
+        for (int k = 0; k < 5; ++k) {
+            marca(sw(fr[k]), R, R + 11, cinza, 0.9f);
+            const ImVec2 q = ponto(sw(fr[k]), R - 23);
+            txMed(4.3f, q.x, q.y, cinza, k == 4 ? "oo" : rt[k], 0.5f);
+        }
+        const float mn[] = {0.12f, 0.22f, 0.39f, 0.58f, 0.85f};
+        for (float m : mn) pontinho(sw(m), R + 6, cinza);
+        rotuloEsq(a0 - 0.012f, R, "SWR");
+    }
+    // --- Id (A): 0..15
+    {
+        const float a0 = 0.20f, a1 = 0.84f, R = 608;
+        auto id = [&](float v) { return a0 + (a1 - a0) * v / 15.f; };
+        arco(a0, a1, R, cinza, 0.9f);
+        for (int v = 0; v <= 15; ++v) {
+            if (v % 5 == 0) {
+                marca(id((float)v), R, R + 10, cinza, 0.9f);
+                char t[8]; std::snprintf(t, sizeof t, v == 15 ? "%dA" : "%d", v);
+                const ImVec2 q = ponto(id((float)v), R - 22);
+                txMed(4.2f, q.x, q.y, cinza, t, v == 15 ? 0.7f : 0.5f);
+            } else pontinho(id((float)v), R + 5, cinza);
+        }
+        rotuloEsq(a0 - 0.012f, R, "Id");
+    }
+    // --- COMP (dB): 0..20
+    {
+        const float a0 = 0.25f, a1 = 0.78f, R = 556;
+        auto cp = [&](float v) { return a0 + (a1 - a0) * v / 20.f; };
+        arco(a0, a1, R, cinza, 0.9f);
+        for (int v = 0; v <= 20; v += 2) {
+            if (v % 10 == 0) {
+                marca(cp((float)v), R, R + 10, cinza, 0.9f);
+                char t[8]; std::snprintf(t, sizeof t, v == 20 ? "%ddB" : "%d", v);
+                const ImVec2 q = ponto(cp((float)v), R - 22);
+                txMed(4.1f, q.x, q.y, cinza, t, v == 20 ? 0.7f : 0.5f);
+            } else pontinho(cp((float)v), R + 5, cinza);
+        }
+        rotuloEsq(a0 - 0.012f, R, "COMP");
+    }
+    // --- faixa do ALC (vermelha, com a seta) e o Vd (46-54 V)
+    {
+        const float R = 506;
+        arco(0.36f, 0.47f, R, verm, 2.2f);
+        const ImVec2 s0 = ponto(0.36f, R), s1 = ponto(0.375f, R + 9), s2 = ponto(0.375f, R - 9);
+        dl->AddTriangleFilled(M.p(s0.x, s0.y), M.p(s1.x, s1.y), M.p(s2.x, s2.y), verm);
+        marca(0.47f, R - 8, R + 8, verm, 1.2f);
+        const ImVec2 q = ponto(0.415f, R - 22);
+        txMed(4.3f, q.x, q.y, verm, "ALC", 0.5f);
+        const float v0 = 0.52f, v1 = 0.64f;
+        arco(v0, v1, R, cinza, 0.9f);
+        marca(v0, R, R + 11, cinza, 0.9f);
+        marca(v1, R, R + 11, cinza, 0.9f);
+        const ImVec2 qa = ponto(v0, R - 21), qb = ponto(v1, R - 21), qc = ponto(v1 + 0.115f, R - 21);
+        txMed(4.f, qa.x, qa.y, cinza, "46", 0.5f);
+        txMed(4.f, qb.x, qb.y, cinza, "54V", 0.5f);
+        txMed(4.f, qc.x, qc.y, cinza, "Vd", 0.5f);
     }
     {   // ponteiro
         const float pos = std::clamp(smAtual_, 0.f, 1.02f);
-        const ImVec2 p0 = ponto(pos, 120), p1 = ponto(pos, 540);
+        const ImVec2 p0 = ponto(pos, 420), p1 = ponto(pos, 845);
         dl->AddLine(M.p(p0.x + 0.6f, p0.y + 0.8f), M.p(p1.x + 0.6f, p1.y + 0.8f), IM_COL32(0, 0, 0, 60), M.d(1.6f));
         dl->AddLine(M.p(p0.x, p0.y), M.p(p1.x, p1.y), IM_COL32(0xd8, 0x18, 0x10, 255), M.d(1.4f));
     }
@@ -1447,6 +1583,8 @@ void Ui::telaPrincipal()
             const float wHz = larguraTexto(f_.lcd, 17.f, hz.c_str());
             texto(f_.lcd, 30.f, 562 - wHz, 66, lig ? P_BRANCO : P_APAGADO, mhz.c_str(), 1.f);
             texto(f_.lcd, 17.f, 562, 79, lig ? IM_COL32(0xc8, 0xd0, 0xdc, 255) : P_APAGADO, hz.c_str(), 1.f);
+            rodaDigitos(f_.lcd, 30.f, 562 - wHz, 66, mhz, ativo_, 1000);
+            rodaDigitos(f_.lcd, 17.f, 562, 79, hz, ativo_, 1);
             if (!R.memModo) texto(f_.painel, 6.f, 562, 106, P_APAGADO, ("FIL-" + std::string(kNomesFil[R.fil])).c_str(), 1.f);
         }
         // linha do outro receptor (pequena) e do filtro
@@ -1454,6 +1592,7 @@ void Ui::telaPrincipal()
             std::snprintf(b, sizeof b, "%s  %s", ativo_ == 0 ? "SUB" : "MAIN", O.modo.c_str());
             texto(f_.painel, 7.f, 316, 118, ativo_ == 0 ? P_AMARELO : P_BRANCO, b);
             texto(f_.lcd, 11.f, 462, 117, IM_COL32(0xb8, 0xc0, 0xcc, 255), fmtFreqLcd(O.f).c_str(), 1.f);
+            rodaDigitos(f_.lcd, 11.f, 462, 117, fmtFreqLcd(O.f), 1 - ativo_, 1);
             const int g = grupoModo(modo);
             if (g == 0) std::snprintf(b, sizeof b, "HI %.2fk LO %.2fk", filHi_[0][R.fil] / 1000.f, filLo_[0][R.fil] / 1000.f);
             else if (g == 1) std::snprintf(b, sizeof b, "W %.0f SH %+.0f", filHi_[1][R.fil], filLo_[1][R.fil]);
@@ -1754,6 +1893,7 @@ void Ui::telaSub()
             texto(f_.painel, 9.f, 990, y0 + 1, R.ritOn ? P_BRANCO : P_APAGADO, b, 1.f);
             const std::string fs = fmtFreqLcd(f);
             texto(f_.lcd, i == 0 ? 32.f : 28.f, 990, y0 + 17, lig ? (at ? P_BRANCO : IM_COL32(0xc6, 0xcc, 0xd8, 255)) : P_APAGADO, fs.c_str(), 1.f);
+            rodaDigitos(f_.lcd, i == 0 ? 32.f : 28.f, 990, y0 + 17, fs, i, 1);
             if (R.lock) texto(f_.painel, 6.f, 836, y0 + 24, P_VERMELHO, "LOCK");
             if (R.fine) texto(f_.painel, 6.f, 862, y0 + 24, P_CIANO, "FINE");
             if (R.sql > -90.f) {   // squelch ligado neste receptor (vermelho = fechando o som agora)
@@ -1866,6 +2006,16 @@ void Ui::arcoVfo()
                                 IM_COL32(3, 6, 10, 0), IM_COL32(3, 6, 10, 255));
     dl->AddRectFilledMultiColor(M.p(x1 - 34, y0), M.p(x1 + 3, y1), IM_COL32(3, 6, 10, 0), IM_COL32(3, 6, 10, 255),
                                 IM_COL32(3, 6, 10, 255), IM_COL32(3, 6, 10, 0));
+    // meia-lua escura no meio da borda de baixo (o cubo do tambor, como no radio)
+    {
+        const ImVec2 cm = M.p(cx, y1 + 5.f);
+        const ImVec2 r0(M.d(50.f), M.d(17.f));
+        dl->AddEllipseFilled(cm, ImVec2(r0.x + M.d(2.2f), r0.y + M.d(2.2f)), IM_COL32(0x58, 0x5c, 0x64, lig ? 255 : 160), 0.f, 64);   // borda clara
+        dl->AddEllipseFilled(cm, r0, IM_COL32(0x0c, 0x0d, 0x10, 255), 0.f, 64);
+        dl->AddEllipseFilled(ImVec2(cm.x, cm.y + M.d(3.f)), ImVec2(r0.x * 0.82f, r0.y * 0.7f), IM_COL32(0x1c, 0x1e, 0x24, 255), 0.f, 64);   // fundo com volume
+        dl->PathEllipticalArcTo(cm, ImVec2(r0.x - M.d(1.2f), r0.y - M.d(1.2f)), 0.f, (float)(-kPi * 0.92), (float)(-kPi * 0.08), 48);
+        dl->PathStroke(IM_COL32(255, 255, 255, lig ? 40 : 15), 0, M.d(0.8f));                                               // reflexo fino
+    }
     // ponteiro fixo no meio
     const ImU32 corPont = lig ? P_VERMELHO : P_APAGADO;
     dl->AddLine(M.p(cx, topo - 6), M.p(cx, topo + 11.5f), alfa(corPont, 110), M.d(2.6f));   // para acima dos numeros
