@@ -25,7 +25,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Baixar o codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Compilar (MSVC x64, CRT estatico)
         shell: cmd
@@ -43,7 +43,7 @@ jobs:
 
       - name: Guardar o exe (sem assinatura)
         id: sem-assinatura
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SDR990S-sem-assinatura
           path: build/Release/SDR990S.exe
@@ -64,7 +64,7 @@ jobs:
 
       - name: Guardar o exe assinado
         if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SDR990S-assinado
           path: assinado/SDR990S.exe

@@ -10,6 +10,8 @@ Baixe o `.zip` em **[Releases](https://github.com/Rubenpereira/SDR990S/releases)
 
 **Não precisa instalar.** A configuração fica no `SDR990S.ini`, ao lado do programa. Roda no Windows 7 SP1, 8, 10 e 11.
 
+This project uses free code signing provided by [SignPath.io](https://about.signpath.io/), with a certificate by the [SignPath Foundation](https://signpath.org/) (see [Code signing policy](#code-signing-policy--política-de-assinatura)).
+
 ## O que tem
 
 - **Aparelhos:** RTL-SDR (USB), RTL-TCP (rede) e SDRplay (com a [API oficial](https://www.sdrplay.com/api/)).
