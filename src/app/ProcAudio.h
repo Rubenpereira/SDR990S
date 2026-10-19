@@ -113,7 +113,7 @@ private:
     Lms anotch_, bc_;
     std::vector<float> atrasoA_, atrasoB_; size_t posA_ = 0, posB_ = 0;
     // PROC
-    float procEnv_ = 0.f, procG_ = 1.f;
+    float procEnv_ = 0.f, procG_ = 1.f, procPico_ = 0.f;
     int tomAtual_ = -1;
     void calcularTom(int tom);
 };

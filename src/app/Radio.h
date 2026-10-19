@@ -89,7 +89,10 @@ public:
     void setXvtr(uint64_t hz);                       // conversor (upconverter): soma no dongle
     uint64_t xvtr() const { return xvtr_.load(); }
     void setNb2(bool on, float nivel) { nb2On_.store(on); nb2Nivel_.store(nivel); }
-    void setGanhoExtraDb(float db) { ganhoExtraDb_.store(db); }   // ATT (-) / PAMP (+)
+    void setGanhoExtraDb(float db) { ganhoExtraDb_.store(db); }   // ATT (-), digital
+    void setPreamp(int nivel);            // PAMP: 0 OFF / 1 PRE1 / 2 PRE2 (ganho REAL do aparelho)
+    int  efeitoPreamp() const;            // -1 desligado; 0 sem efeito (HF/AGC); 1 tuner RTL; 2 FI SDRplay
+    int  ganhoTunerAgora() const;         // dB x 10 que vai ao tuner (-1 = AGC)
 
     SomNativo& som() { return som_; }
     Decoders& decoders() { return dec_; }
@@ -135,6 +138,9 @@ private:
     std::atomic<bool>     nb2On_{false};
     std::atomic<float>    nb2Nivel_{0.5f};
     std::atomic<float>    ganhoExtraDb_{0.f};
+    std::atomic<int>      preampNivel_{0};
+    int ganhoTuner(int tenths = -999) const;   // ganho do tuner com o PAMP (-1 = AGC)
+    int ifGainSdrplay() const;                 // ganho de FI do SDRplay com o PAMP
     float nb2Media_ = 0.f; int nb2Seg_ = 0;
 
     SomNativo som_;

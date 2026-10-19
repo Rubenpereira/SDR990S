@@ -571,7 +571,8 @@ void Ui::aplicarReceptor()
         ganhoRf_ = 100.f - R.rf;
         r_.setGanho((int)std::lround(4.96f * R.rf));
     }
-    r_.setGanhoExtraDb(-6.f * att_ + 10.f * pamp_);
+    r_.setGanhoExtraDb(-6.f * att_);
+    r_.setPreamp(pamp_);
     // CW: SHIFT desloca a escuta e compensa no tom - a batida continua no PITCH
     const int g = grupoModo(r_.modo());
     int shift = 0;
@@ -1686,7 +1687,25 @@ void Ui::teclasTela()
                 d = "PSEL: entrada de HF (amostragem direta Q) - AUTO liga abaixo de 24 MHz, ON, OFF"; break; }
         case 3: std::snprintf(l1, sizeof l1, "PAMP");
                 if (pamp_) std::snprintf(l2, sizeof l2, "PRE%d", pamp_); else std::snprintf(l2, sizeof l2, "OFF");
-                on = pamp_ > 0; d = "PAMP: pré-amplificador OFF / +10 dB / +20 dB"; break;
+                on = pamp_ > 0;
+                {   // a dica mostra o que o PAMP faz neste aparelho / faixa
+                    static char dp[480];
+                    const int ef = r_.efeitoPreamp();
+                    if (ef == 1) {
+                        const int g = r_.ganhoTunerAgora();
+                        std::snprintf(dp, sizeof dp, "PAMP: ganho do tuner (RF no máximo): OFF 46 dB / PRE1 47,5 dB / PRE2 49,6 dB\n"
+                                      "Agora: %.1f dB (o dongle usa o degrau mais próximo da tabela dele)", g / 10.0);
+                    } else if (ef == 2)
+                        std::snprintf(dp, sizeof dp, "PAMP: ganho de FI do SDRplay: OFF / PRE1 +10 dB / PRE2 +20 dB (até 59 dB)");
+                    else if (ef == 0)
+                        std::snprintf(dp, sizeof dp, "PAMP: OFF 46 / PRE1 47,5 / PRE2 49,6 dB\n"
+                                      "Agora: %s - os mesmos degraus aplicados no processamento\n(OFF -3,6 dB / PRE1 -2,1 dB / PRE2 0 dB)",
+                                      r_.tipo() == "sdrplay" ? "AGC de FI ligado"
+                                      : r_.qAtivo() ? "HF por amostragem direta (o dongle não tem ganho de RF aqui)" : "T-AGC ligado");
+                    else std::snprintf(dp, sizeof dp, "PAMP: ganho do tuner OFF 46 / PRE1 47,5 / PRE2 49,6 dB (SDRplay: +10 / +20 dB de FI)");
+                    d = dp;
+                }
+                break;
         case 4: std::snprintf(l1, sizeof l1, "T-AGC"); std::snprintf(l2, sizeof l2, "%s", c.agc() ? "ON" : "OFF"); on = c.agc();
                 d = "T-AGC (no lugar do MAX-P): AGC do dongle ligado/desligado.\nCom T-AGC ligado, o RF continua valendo como ganho digital (6 dB abaixo do manual)"; break;
         case 5: { const char* m[3] = {"S", "dB", "PEAK"}; std::snprintf(l1, sizeof l1, "METER"); std::snprintf(l2, sizeof l2, "%s", m[medidorModo_]);
@@ -1787,7 +1806,7 @@ void Ui::controlesBaixo()
         }
     }
     if (tecla("kProc", "PROC", 252, 446, 46, 15, proc_ ? 2 : 0, "SEL",
-              "PROC: compressor de áudio - levanta os sinais fracos (força no PROC IN)")) proc_ = !proc_;
+              "PROC: compressor de áudio - levanta as sílabas e os sinais fracos (força no PROC IN)")) proc_ = !proc_;
     if (tecla("kFbk", "FBK", 356, 446, 46, 15, r_.decoders().tipo() == Decoders::CW ? 2 : 0, nullptr,
               "FBK: abre o decodificador de CW (telegrafia em texto)")) {
         decAberta_ = true;
@@ -1829,10 +1848,11 @@ void Ui::controlesBaixo()
             }
         }
     }
-    std::snprintf(d, sizeof d, "PROC IN: força do compressor de áudio (%d%%)\nPROC OUT: retorno do ponteiro do S-meter (%.1f s)",
-                  (int)std::lround(procNivel_ * 100), smRetorno_);
+    std::snprintf(d, sizeof d, "PROC IN: força do compressor de áudio (%d%% = até +%.0f dB nas partes fracas)%s\nPROC OUT: retorno do ponteiro do S-meter (%.1f s)",
+                  (int)std::lround(procNivel_ * 100), procNivel_ * 20.f, proc_ ? "" : "\n(girar liga o PROC)", smRetorno_);
     if (giro("gProc", 275, 534, 25, "PROC IN", "PROC OUT", procNivel_, (smRetorno_ - 0.1f) / 2.9f, di, dO, d)) {
         procNivel_ = std::clamp(procNivel_ + di, 0.f, 1.f);
+        if (di != 0 && !proc_) { proc_ = true; aviso("PROC ligado"); }   // como no rádio: mexeu no PROC IN, quer o processador
         smRetorno_ = std::clamp(smRetorno_ + dO * 2.9f, 0.1f, 3.f);
         Config::instance().set("smeter_retorno", (double)smRetorno_);
     }

@@ -56,6 +56,13 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
    PSEL  amostragem direta (HF) AUTO/ON/OFF   PAMP pre-amplificador
    T-AGC AGC do dongle                   METER  S-meter em S, dB ou pico
    RATE  taxa de amostragem (largura do Band Scope)
+   PAMP: ganho REAL do aparelho. RTL: ganho do tuner com o RF no maximo -
+         OFF 46 dB, PRE1 47,5 dB, PRE2 49,6 dB (o maximo do dongle); o RF abaixo
+         disso reduz na mesma proporcao. O dongle usa o degrau mais proximo da
+         tabela dele (R820T: 44,5 / 48,0 / 49,6 dB). Em HF o RTL usa amostragem
+         direta, sem tuner: ali os mesmos degraus sao aplicados no processamento
+         (OFF -3,6 dB, PRE1 -2,1 dB, PRE2 0 dB). SDRplay: +10 / +20 dB de ganho
+         de FI. A dica mostra o ganho atual.
  F1-F7 (Band Scope)
    F1 RF/AF  IF DISPLAY (zoom de 20 kHz)  F2 ATT   escurece o escopo
    F3 MARKER nomes das memorias           F4 PAUSE congela
@@ -68,6 +75,8 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
                         (gire a direita fecha, a esquerda abre; vale
                         tambem depois do automatico do VOX)
    PROC IN / PROC OUT   forca do compressor / retorno do S-meter
+                        (PROC IN: 0 = som intacto, 10 = ate +20 dB nas partes
+                        fracas da fala; girar liga a tecla PROC)
    PWR / CAR            brilho / contraste da cachoeira
    KEY SPEED / DELAY    velocidade da cachoeira do Band Scope / demora do squelch
    VEL (barra de baixo) velocidade da cachoeira de baixo; clique = as duas

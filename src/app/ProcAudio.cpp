@@ -424,18 +424,35 @@ void ProcAudio::processar(float* x, size_t n)
         for (size_t i = 0; i < n; ++i) x[i] = apf_.passa(x[i]) * 1.8f + x[i] * 0.12f;
     } else apfF_ = -1;
     if (a.proc) {
-        const float maxG = 1.f + 7.f * std::clamp(a.procNivel, 0.f, 1.f);       // ate +18 dB
-        const float at = 1.f - std::exp(-1.f / float(kTaxa * 0.004));
-        const float rl = 1.f - std::exp(-1.f / float(kTaxa * 0.250));
+        // Compressor de fala: o que esta abaixo do pico recente (silabas fracas,
+        // fim de palavra, sinal no fundo do ruido) sobe ate o pico, no maximo
+        // PROC IN x (0..+20 dB). O pico fica onde estava (limitador suave so
+        // acima de 80% dele) - com o PROC IN em 0 o som passa intacto.
+        // A referencia e o PROprio nivel do audio (pico dos ultimos 3 s), e nao
+        // um nivel fixo: antes o alvo fixo ficava abaixo do que o AGC entrega e
+        // o PROC IN nao mudava nada. Medido com silabas de 0,08 e 0,5: no 100%
+        // a fraca vai de 0,11 a 0,43 (+12 dB), a forte fica em 0,5, o RMS sobe 3,3 dB.
+        const float nivel = std::clamp(a.procNivel, 0.f, 1.f);
+        const float maxG = std::pow(10.f, nivel * 20.f / 20.f);
+        const float at  = 1.f - std::exp(-1.f / float(kTaxa * 0.003));    // envelope: 3 ms
+        const float rl  = 1.f - std::exp(-1.f / float(kTaxa * 0.060));    //           60 ms
+        const float atP = 1.f - std::exp(-1.f / float(kTaxa * 0.010));    // pico: 10 ms
+        const float rlP = std::exp(-1.f / float(kTaxa * 3.0));             //       3 s
+        const float cg  = 1.f - std::exp(-1.f / float(kTaxa * 0.008));    // ganho: 8 ms
         for (size_t i = 0; i < n; ++i) {
             const float ab = std::fabs(x[i]);
             procEnv_ += (ab - procEnv_) * (ab > procEnv_ ? at : rl);
-            const float alvoG = std::min(maxG, 0.30f / std::max(1e-4f, procEnv_));
-            procG_ += (alvoG - procG_) * 0.002f;
-            const float y = x[i] * procG_;
-            x[i] = std::tanh(y);
+            if (ab > procPico_) procPico_ += (ab - procPico_) * atP; else procPico_ *= rlP;
+            const float ref = std::max(procPico_, 1e-3f);
+            const float alvoG = std::clamp(ref / std::max(procEnv_, 1e-5f), 1.f, maxG);
+            procG_ += (alvoG - procG_) * cg;
+            float y = x[i] * procG_;
+            const float lim = std::max(procPico_ * 1.1f, 0.05f), joelho = 0.8f * lim;
+            const float ay = std::fabs(y);
+            if (ay > joelho) y = std::copysign(joelho + (lim - joelho) * std::tanh((ay - joelho) / (lim - joelho)), y);
+            x[i] = y;
         }
-    } else { procG_ = 1.f; procEnv_ = 0.f; }
+    } else { procG_ = 1.f; procEnv_ = 0.f; procPico_ = 0.f; }
 
     // 5) Tom (grave/agudo). Plano (50) nao passa pelos filtros.
     if (a.tom != 50) {

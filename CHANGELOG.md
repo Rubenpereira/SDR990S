@@ -1,5 +1,11 @@
 # SDR990S - histórico
 
+## SDR990S 1.1.5
+
+- PAMP agora é ganho real do aparelho. RTL (VHF/UHF): ganho do tuner com o RF no máximo, OFF 46 dB, PRE1 47,5 dB e PRE2 49,6 dB. SDRplay: +10/+20 dB de ganho de FI. Antes ele só multiplicava as amostras: clareava a cachoeira, o AT desfazia e no PRE2 a tela saturava. Em HF o RTL usa amostragem direta, sem tuner: ali os mesmos degraus são aplicados no processamento (OFF −3,6 dB, PRE1 −2,1 dB, PRE2 0 dB), sem saturar. A dica do botão mostra o ganho atual.
+- PROC (compressor de áudio) refeito: agora o PROC IN muda o som de verdade. As sílabas e os sinais fracos sobem até o nível do pico recente (até +20 dB no 10), o pico fica onde estava e no 0 o som passa intacto. Antes o compressor mirava num nível fixo, abaixo do que o AGC entrega, e o knob quase não fazia diferença.
+- Girar o PROC IN liga a tecla PROC, como no rádio.
+
 ## SDR990S 1.1.4
 
 - Licença: volta a ser de uso livre e não comercial, mantendo o crédito ao autor (LICENSE.txt).

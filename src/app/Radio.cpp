@@ -123,7 +123,7 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
     // cima da estacao ate a primeira sintonia fora da tela (visto em 8580,5 kHz)
     const uint64_t centro = centroSemDc(f);
     d->setCenterFreq((centro) + xvtr_.load());
-    if (tipo != "sdrplay") d->setGain(c.agc() ? -1 : c.gainTenths());
+    if (tipo != "sdrplay") d->setGain(ganhoTuner());
 
     if (!d->open(arg)) {
         erro = d->lastError();
@@ -146,9 +146,9 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
     dev_->setCenterFreq((centro) + xvtr_.load());
     if (tipo_ == "sdrplay") {
         if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
-            s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), c.sdrplayIfGain(), c.sdrplayIfAgc(), c.sdrplayBw());
+            s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), ifGainSdrplay(), c.sdrplayIfAgc(), c.sdrplayBw());
     } else {
-        dev_->setGain(c.agc() ? -1 : c.gainTenths());
+        dev_->setGain(ganhoTuner());
     }
     ligarCallback();
     Logger::info("Aparelho: " + tipo_ + " (" + serial_ + ")");
@@ -192,9 +192,9 @@ bool Radio::sintonizar(uint64_t hz)
         dev_->setCenterFreq((hz) + xvtr_.load());
         if (tipo_ == "sdrplay") {
             if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
-                s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), c.sdrplayIfGain(), c.sdrplayIfAgc(), c.sdrplayBw());
+                s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), ifGainSdrplay(), c.sdrplayIfAgc(), c.sdrplayBw());
         } else {
-            dev_->setGain(c.agc() ? -1 : c.gainTenths());
+            dev_->setGain(ganhoTuner());
         }
         return true;
     }
@@ -237,7 +237,7 @@ void Radio::centralizar(uint64_t hz)
     const bool q = (tipo_ != "sdrplay") && usarQ(hz);
     if (q != qAtual_) { dev_->setQuadrature(q); qAtual_ = q; }
     dev_->setCenterFreq((hz) + xvtr_.load());
-    if (tipo_ != "sdrplay") dev_->setGain(c.agc() ? -1 : c.gainTenths());
+    if (tipo_ != "sdrplay") dev_->setGain(ganhoTuner());
 }
 
 uint64_t Radio::centro() const
@@ -281,12 +281,66 @@ void Radio::setBanda(int hz)
     if (demod_) demod_->setBandwidth((uint32_t)hz);
 }
 
+// PAMP (OFF / PRE1 / PRE2): ganho REAL do aparelho.
+//  RTL-SDR / RTL-TCP: teto do ganho do tuner - OFF 46 dB, PRE1 47,5 dB,
+//    PRE2 49,6 dB (o maximo do dongle) com o RF no maximo; o RF abaixo
+//    disso reduz na mesma proporcao. O dongle usa o degrau mais proximo da
+//    tabela dele (R820T: 44,5 / 48,0 / 49,6 dB).
+//  RTL em HF (amostragem direta) ou com T-AGC: o tuner fica de fora, entao o
+//    PAMP vira a mesma diferenca em dB no processamento: OFF -3,6 dB,
+//    PRE1 -2,1 dB, PRE2 0 dB (o nivel de antes). Como o PRE2 e o nivel antigo,
+//    nada satura - o +10/+20 dB digital de antes saturava a tela.
+//  SDRplay: +10 / +20 dB no ganho de FI (20..59 dB); com o AGC de FI ligado,
+//    a mesma diferenca digital do RTL.
+static const int kTetoPamp[3] = {460, 475, 496};   // dB x 10
+
+int Radio::ganhoTuner(int tenths) const
+{
+    const auto& c = Config::instance();
+    if (c.agc()) return -1;
+    const int g = std::clamp(tenths == -999 ? c.gainTenths() : tenths, 0, 496);
+    const int teto = kTetoPamp[std::clamp(preampNivel_.load(), 0, 2)];
+    return (int)std::lround(g * (double)teto / 496.0);
+}
+
+int Radio::ifGainSdrplay() const
+{
+    return std::clamp(Config::instance().sdrplayIfGain() + 10 * std::clamp(preampNivel_.load(), 0, 2), 20, 59);
+}
+
+void Radio::setPreamp(int nivel)
+{
+    if (preampNivel_.exchange(nivel) == nivel) return;
+    const auto& c = Config::instance();
+    std::lock_guard<std::mutex> lk(devMutex_);
+    if (!dev_) return;
+    if (tipo_ == "sdrplay") {
+        if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
+            s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), ifGainSdrplay(), c.sdrplayIfAgc(), c.sdrplayBw());
+    } else {
+        dev_->setGain(ganhoTuner());
+    }
+}
+
+int Radio::efeitoPreamp() const
+{
+    const auto& c = Config::instance();
+    // chamado pela tela a cada quadro: nunca espera (ligar pela rede pode demorar)
+    std::unique_lock<std::mutex> lk(devMutex_, std::try_to_lock);
+    if (!lk.owns_lock() || !dev_) return -1;
+    if (tipo_ == "sdrplay") return c.sdrplayIfAgc() ? 0 : 2;
+    if (c.agc() || qAtual_) return 0;
+    return 1;
+}
+
+int Radio::ganhoTunerAgora() const { return ganhoTuner(); }
+
 void Radio::setGanho(int tenths)
 {
     auto& c = Config::instance();
     c.set("gain", tenths);
     std::lock_guard<std::mutex> lk(devMutex_);
-    if (dev_ && tipo_ != "sdrplay") dev_->setGain(c.agc() ? -1 : tenths);
+    if (dev_ && tipo_ != "sdrplay") dev_->setGain(ganhoTuner(tenths));
 }
 
 void Radio::aplicarConfig()
@@ -317,9 +371,9 @@ void Radio::aplicarConfig()
     dev_->setBias(c.biasT());
     if (tipo_ == "sdrplay") {
         if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
-            s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), c.sdrplayIfGain(), c.sdrplayIfAgc(), c.sdrplayBw());
+            s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), ifGainSdrplay(), c.sdrplayIfAgc(), c.sdrplayBw());
     } else {
-        dev_->setGain(c.agc() ? -1 : c.gainTenths());
+        dev_->setGain(ganhoTuner());
     }
     if (reinicia) dcBlock_.reset();
 }
@@ -403,8 +457,14 @@ void Radio::ligarCallback()
         else if (cfg.agc()) uiGain = 1.0f;
         if (direta && familiaRtl)    uiGain *= 7.943f;       // +18 dB em HF
         if (!direta && familiaRtl)   uiGain *= 1.259f;       // +2 dB em VHF
-        // ATT / PAMP do painel (ganho digital, dB)
+        // ATT do painel (ganho digital, dB)
         { const float ex = ganhoExtraDb_.load(); if (ex != 0.f) uiGain *= std::pow(10.0f, ex / 20.0f); }
+        // PAMP onde nao ha ganho de RF para mexer (HF por amostragem direta, T-AGC,
+        // AGC de FI do SDRplay): os mesmos degraus do tuner, no processamento
+        if ((familiaRtl && (direta || cfg.agc())) || (tipo_ == "sdrplay" && cfg.sdrplayIfAgc())) {
+            const int teto = kTetoPamp[std::clamp(preampNivel_.load(), 0, 2)];
+            if (teto != 496) uiGain *= std::pow(10.0f, (teto - 496) / 200.0f);
+        }
 
         std::vector<std::complex<float>> work(iq, iq + n);
         const bool usaDc = (tipo_ != "sdrplay");
