@@ -1,0 +1,71 @@
+# Compila o SDR990S.exe no GitHub (Windows, Visual Studio 2022) e, quando a
+# SignPath Foundation tiver aprovado o projeto, envia o exe para ser assinado.
+#
+# Roda quando pedido: pelo BAIXAR_ASSINADO.bat (gh workflow run) ou pelo botao
+# "Run workflow" na aba Actions. Cada assinatura precisa ser aprovada no site da
+# SignPath, por isso nao roda sozinho a cada envio.
+#
+# A assinatura so acontece depois de criar, em Settings > Secrets and variables
+# > Actions do repositorio:
+#   - secret   SIGNPATH_API_TOKEN       (o token da SignPath)
+#   - variable SIGNPATH_ORGANIZATION_ID (o ID da organizacao na SignPath)
+# Antes disso o workflow so compila e guarda o exe sem assinatura.
+
+name: Compilar
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - name: Baixar o codigo
+        uses: actions/checkout@v4
+
+      - name: Compilar (MSVC x64, CRT estatico)
+        shell: cmd
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          if errorlevel 1 exit /b 1
+          cmake --build build --config Release
+          if errorlevel 1 exit /b 1
+
+      - name: Conferir o exe
+        shell: pwsh
+        run: |
+          $f = Get-Item build/Release/SDR990S.exe
+          "{0}  {1:N0} bytes  versao {2}" -f $f.Name, $f.Length, $f.VersionInfo.FileVersion
+
+      - name: Guardar o exe (sem assinatura)
+        id: sem-assinatura
+        uses: actions/upload-artifact@v4
+        with:
+          name: SDR990S-sem-assinatura
+          path: build/Release/SDR990S.exe
+          if-no-files-found: error
+
+      - name: Assinar (SignPath Foundation)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+          organization-id: '${{ vars.SIGNPATH_ORGANIZATION_ID }}'
+          project-slug: 'SDR990S'
+          signing-policy-slug: 'release-signing'
+          github-artifact-id: '${{ steps.sem-assinatura.outputs.artifact-id }}'
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: 'assinado'
+
+      - name: Guardar o exe assinado
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SDR990S-assinado
+          path: assinado/SDR990S.exe
+          if-no-files-found: error

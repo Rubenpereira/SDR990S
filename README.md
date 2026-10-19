@@ -35,4 +35,29 @@ Os decodificadores externos (dsd-fme, AIS-catcher, direwolf etc.) não estão ne
 
 ## Licença
 
-Uso livre e **não comercial**, mantendo o crédito ao autor. Veja o [LICENSE.txt](LICENSE.txt). Os programas de terceiros seguem as licenças deles ([TERCEIROS.txt](TERCEIROS.txt)).
+Software livre: **GNU GPL versão 3 ou posterior** ([LICENSE.txt](LICENSE.txt)). Os programas de terceiros que vêm no pacote seguem as licenças deles ([TERCEIROS.txt](TERCEIROS.txt)).
+
+## Code signing policy / Política de assinatura
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+*Assinatura de código gratuita fornecida pela SignPath.io, certificado da SignPath Foundation.*
+
+- **Committers and reviewers / Autores e revisores:** [Rubenpereira](https://github.com/Rubenpereira)
+- **Approvers / Aprovadores:** [Rubenpereira](https://github.com/Rubenpereira)
+
+Only `SDR990S.exe`, built by GitHub Actions from this repository ([.github/workflows/compilar.yml](.github/workflows/compilar.yml)), is signed. The third-party programs in the `decoders` folder are upstream builds and are distributed unsigned, under their own licenses.
+
+*Só o `SDR990S.exe`, compilado pelo GitHub Actions a partir deste repositório, é assinado. Os programas de terceiros da pasta `decoders` vêm assinados (ou não) pelos próprios autores.*
+
+### Privacy policy / Privacidade
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. It only connects to the RTL-TCP server the user configures, and opens web links (for example aprs.fi or FlightAware) only when the user clicks them.
+
+*Este programa não envia nenhuma informação para outros computadores, a não ser quando o próprio usuário pede: ele só se conecta ao servidor RTL-TCP que o usuário configurar e só abre links da internet quando o usuário clica neles.*
+
+### Uninstall / Desinstalar
+
+SDR990S is portable: it is not installed and changes nothing in Windows. To remove it, delete its folder.
+
+*O SDR990S é portátil: não instala nada no Windows. Para remover, basta apagar a pasta dele.*

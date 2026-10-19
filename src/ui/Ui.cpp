@@ -2506,7 +2506,7 @@ void Ui::janelaSobre()
     ImGui::TextUnformatted(T("Portátil: não precisa instalar - a configuração fica no SDR990S.ini ao lado do programa."));
     ImGui::TextUnformatted(T("RTL-SDR, RTL-TCP e SDRplay."));
     ImGui::Spacing();
-    ImGui::TextUnformatted(T("Licença: uso livre e NÃO COMERCIAL, mantendo o crédito ao autor (LICENSE.txt)."));
+    ImGui::TextUnformatted(T("Licença: software livre, GNU GPL versão 3 ou posterior (LICENSE.txt)."));
     ImGui::TextDisabled(T("Decodificadores da pasta decoders: de outros autores, com a licença de cada um (TERCEIROS.txt)."));
     ImGui::TextDisabled(T("Tela: Dear ImGui (MIT).  Imagens: stb_image (domínio público)."));
     ImGui::End();

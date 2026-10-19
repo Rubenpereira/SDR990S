@@ -1,8 +1,8 @@
 SDR990S - programas e bibliotecas de terceiros
 ==============================================
 
-O SDR990S segue a licenca do arquivo LICENSE.txt (autor indicado nele):
-uso livre e NAO COMERCIAL, mantendo o credito ao autor.
+O SDR990S e software livre sob a GNU GPL versao 3 ou posterior (arquivo
+LICENSE.txt, com o autor indicado no topo).
 
 Essa licenca vale so para o codigo do SDR990S. Os programas abaixo foram feitos
 por outras pessoas, vem junto na pasta apenas para facilitar o uso e continuam

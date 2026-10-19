@@ -2,6 +2,8 @@
 
 ## SDR990S 1.1.3
 
+- Licença: agora software livre, GNU GPL versão 3 ou posterior.
+- Compilação automática no GitHub (Actions), preparando a assinatura digital gratuita da SignPath Foundation.
 - Programa 420 KB menor: saíram duas imagens da tela antiga que não eram mais usadas (alguns antivírus estranhavam esses dados dentro do executável).
 - Barra de título roxa com o título em branco (Windows 11; no 7 e no 10 fica a do sistema).
 - Velocidade separada para cada cachoeira: botão VEL na barra de baixo (a de baixo; clique abre as duas) e o anel KEY SPEED (a do Band Scope). O IF DISPLAY anda junto com a cachoeira em que está. Cada uma fica salva.
