@@ -122,8 +122,7 @@ Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
    largura (FM). Vale para o receptor ouvido (LED SUB aceso = SUB).
    AF / RF  volume / ganho de RF   MUTE
 
-FT8 e FT4 (DATA ou PF A > Decodificador > FT8)
- - So recepcao, em USB. Escolha a banda na lista (40 m = 7074 kHz, 20 m =
+FT8 e FT4 (DATA ou PF A > Decodificador > FT8) - So recepcao, em USB. Escolha a banda na lista (40 m = 7074 kHz, 20 m =
    14074 kHz...) ou ja esteja numa banda de radioamador: o radio vai sozinho
    para a frequencia do FT8 dela.
  - A lista sai no fim de cada periodo de 15 s (FT4: 7,5 s): hora UTC, dB
@@ -132,6 +131,88 @@ FT8 e FT4 (DATA ou PF A > Decodificador > FT8)
  - O RELOGIO DO PC PRECISA ESTAR CERTO (erro menor que 1 s). No Windows:
    Configuracoes > Hora e idioma > Data e hora > Sincronizar agora. Se todos
    os DT passarem de +1 s, o relogio esta adiantado; abaixo de -1 s, atrasado.
+
+OLIVIA (DATA ou PF A > Decodificador > OLIVIA)
+ - As frequencias de chamada do site oliviadigitalmode.org: 160 m (1839,0 e
+   1827,0 kHz), 80 m (3583,0), 40 m (7040,0 e 7072,5), 30 m (10143,0 e
+   10144,0), 20 m (14072,5 e 14108,5), 17 m (18099,0), 15 m (21072,5),
+   12 m (24922,5) e 10 m (28122,5) - com os tons 8/250 (o mais usado) e
+   32/1000. Escolha no combo "Canal": o radio vai sozinho em USB.
+ - O valor da lista e o CENTRO do sinal, e o centro fica 1500 Hz acima do
+   radio: por isso o radio sintoniza 1500 Hz ABAIXO (14072,5 kHz no centro =
+   14.071,0 MHz no radio), e o conjunto de tons (centrado em 1500 Hz no
+   audio) cai na parte alta da faixa USB, onde o decoder os espera.
+ - O TEXTO E DECODIFICADO AQUI (MFSK + FEC de Walsh-Hadamard, decisoes
+   moles) e sai na caixa de baixo da janela do decodificador. O desvio
+   (ate 125 Hz para cada lado), o instante dos simbolos e o inicio dos
+   blocos sao achados sozinhos, e so sai texto quando o sinal passa do
+   limiar (em ruido puro nao aparece lixo). Decodifica com o sinal uns
+   13 dB abaixo do ruido (8/250 e 16/500). Para transmitir use o FLdigi,
+   o Olivia do UA3AMO ou o MixW.
+ - Fechando a janela de decodificadores o RADIO VOLTA AO ESTADO ANTERIOR:
+   frequencia, modo e largura do filtro como estavam antes. (Isto vale
+   tambem para o RTTY, SITOR-B, DSC, ALE e PACTOR.)
+ - Nao entre nos 14073,5 kHz e acima: ali e a vez do FT8, JT65 e JT9.
+
+STANAG 4285 (DATA ou PF A > Decodificador > STANAG 4285)
+ - O modem da OTAN de portadora unica, o que as frotas navais (Franca,
+   Italia, Holanda, Noruega, Grecia, Turquia...) usam para trafego HF.
+   Velocidades 75, 150, 300, 600 e 1200 bps e o entrelacador LONGO (o das
+   estacoes, ~8 s de sinal antes do primeiro texto) ou CURTO (~1 s).
+ - A lista de frequencias e a tabela STANAG 4285 do autor (a partir de
+   3 MHz), com o pais e as velocidades de cada estacao; ha busca por
+   numero ou por nome ("8416" ou "franca").
+ - O valor da lista e o CENTRO do sinal: o radio fica 1800 Hz ABAIXO dele,
+   em USB com 3 kHz - assim os dados ficam centrados em 1800 Hz no audio,
+   onde o decoder os espera (mesma ideia do OLIVIA).
+ - O TEXTO E DECODIFICADO AQUI (equalizador adaptativo para o
+   multipercurso, Viterbi K=7 e o entrelacador da norma) e sai na caixa de
+   baixo. O desvio da portadora (ate 400 Hz para cada lado) e o relogio do
+   transmissor sao seguidos sozinhos; a linha de estado mostra o SNR.
+   Muito do trafego hoje e cifrado: voce vera letras sem sentido. Se o SNR
+   estiver bom e o texto nao fizer sentido, tente a outra velocidade
+   (600 x 1200) ou o outro entrelacador - em ITA2 sai texto mesmo errado.
+ - Fechando a janela de decodificadores o RADIO VOLTA AO ESTADO ANTERIOR.
+
+SATELITES (DATA ou PF A > Decodificador > SATELITES)
+ - A janela lista os satelites, a proxima passagem de cada um (hora local), o
+   grafico em cruz (N/L/S/O) com o caminho no ceu, onde o satelite ENTRA
+   (verde) e SAI (vermelho), e o mapa-mundi com a trilha no chao, a area de
+   cobertura e a noite. O QTH (locator GG87jb ou lat/lon) decide o que voce
+   ve. Os elementos orbitais (TLE) vem da Celestrak e sao baixados sozinhos
+   uma vez por dia (satelites.tle, ao lado do exe).
+ - Categoria RADIOAMADOR: os satelites de ham (fonia FM e SSB, SSTV, dados
+   AX.25). Duplo clique na linha (ou o botao Sintonizar) poe o radio na
+   frequencia de descida, no modo certo e com o filtro certo, e liga o
+   decodificador que o satelite pede (SSTV, direwolf ou so o audio).
+   "Corrigir Doppler" (opcional) vai seguindo o desvio durante a passagem.
+ - Categoria METEOROLOGICOS: os satelites de observacao da Terra. Pesquisado em
+   20/10/2026: o APT analogico da NOAA acabou (a POES foi desativada entre
+   junho e agosto de 2025 - NOAA-15, 18 e 19, cada um numa frequencia
+   diferente: 137,620 / 137,9125 / 137,100 MHz). Os que ainda mandam sinal em
+   VHF sao os METEOR-M russos: N2-3 (57166) e N2-4 (59051), LRPT digital
+   (OQPSK 72 ksym/s) em 137,900 MHz, ~150 kHz de banda, que se decodifica no
+   SatDump com o IQ bruto (este programa so afina e acompanha a passagem).
+   Os desligados ficam na lista com um X e "DESATIVADO".
+ - Categoria MILITARES: os satelites de defesa que retransmitem VOZ (ou imagem)
+   SEM CRIPTOGRAFIA, com os dados do site Satellitenwelt (conferidos com a
+   Celestrak em 20/10/2026). Entram so os que tem POCAS frequencias (uma ou
+   duas) e que ainda estao em orbita: MILSTAR 1-F1 (243,825 MHz) e MILSTAR
+   2-F3 (243,785 MHz), Skynet 4C (254,050 e 257,550 MHz) e Skynet 4E (254,155
+   e 257,500 MHz), e o MERIDIAN 7 (483,750 e 484,250 MHz) - orbita alta de 63
+   graus, o que da as melhores passagens pelo Sul do Brasil.
+   Ficaram de fora os de lista grande de frequencias (UFO F2/F7/F10/F11, SICRAL,
+   Skynet 5, ComSatBw, MUOS, SDS 3-F2 a F6, FltSatCom) e os que ja cairam.
+   O modo e NFM com 12,5 kHz de filtro: e assim que se ouve esses transponders.
+   Os geostacionarios mostram GEO no lugar de "Proxima" e "Situacao" (eles
+   ficam sempre no mesmo ponto do ceu).
+ - Na lista, quem esta para passar em menos de 15 min fica VERDE (e aparece no
+   topo, porque a lista e ordenada pelo horario da passagem); quem esta no ar
+   tambem. De amarelo, quem passa em menos de 1 h.
+ - Fechando a janela (ou o decodificador) o RADIO VOLTA AO ESTADO ANTERIOR:
+   frequencia, modo e largura do filtro como estavam antes de sintonizar.
+ - Antena de 137 MHz: QFH ou dipolo em V com circulacao a direita (os
+   meteorologicos pedem RHCP).
 
 Licenca: uso livre e NAO COMERCIAL, mantendo o credito ao autor (LICENSE.txt).
 Os decodificadores da pasta decoders sao de outros autores e seguem a licenca

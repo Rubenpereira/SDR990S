@@ -33,6 +33,8 @@ for %%d in (librtlsdr.dll rtlsdr.dll libusb-1.0.dll pthreadVC2.dll) do (
   if exist "%~dp0third_party\librtlsdr\lib\%%d" copy /y "%~dp0third_party\librtlsdr\lib\%%d" "%~dp0build\" >nul
 )
 if not exist "%PRONTO%\bookmarks.json" copy /y "%~dp0bookmarks.json" "%PRONTO%\" >nul
+rem --- TLE inicial dos satelites (o programa atualiza sozinho pela internet) ---
+if not exist "%PRONTO%\satelites.tle" copy /y "%~dp0assets\satelites.tle" "%PRONTO%\" >nul
 for %%f in (LICENSE.txt LICENSE-DSD.txt LEIA-ME.txt TERCEIROS.txt) do if exist "%~dp0%%f" copy /y "%~dp0%%f" "%PRONTO%\" >nul
 echo.
 echo [OK] Pronto: %PRONTO%\SDR990S.exe

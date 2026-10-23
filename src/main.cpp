@@ -121,7 +121,8 @@ ImFont* fonte(const char* arquivo, float px)
     const std::string p = std::string(win) + "\\Fonts\\" + arquivo;
     ImGuiIO& io = ImGui::GetIO();
     // Latim (acentos) + "…" (U+2026) + "●" (U+25CF, do GRAVANDO)
-    static const ImWchar faixas[] = {0x0020, 0x00FF, 0x2014, 0x2014, 0x2026, 0x2026, 0x25BC, 0x25BC, 0x25CB, 0x25CB, 0x25CF, 0x25CF, 0};
+    // + "▲"/"▼" (U+25B2/25BC, da barra de satelites minimizada)
+    static const ImWchar faixas[] = {0x0020, 0x00FF, 0x2014, 0x2014, 0x2026, 0x2026, 0x25B2, 0x25B2, 0x25BC, 0x25BC, 0x25CB, 0x25CB, 0x25CF, 0x25CF, 0};
     if (GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES)
         return io.Fonts->AddFontFromFileTTF(p.c_str(), px, nullptr, faixas);
     ImFontConfig cfg; cfg.SizePixels = px;
@@ -136,7 +137,7 @@ ImFont* fontePainel(const char* arquivo, float px)
     GetWindowsDirectoryA(win, MAX_PATH);
     const std::string p = std::string(win) + "\\Fonts\\" + arquivo;
     ImGuiIO& io = ImGui::GetIO();
-    static const ImWchar faixas[] = {0x0020, 0x00FF, 0x25BC, 0x25BC, 0};
+    static const ImWchar faixas[] = {0x0020, 0x00FF, 0x25B2, 0x25B2, 0x25BC, 0x25BC, 0};
     ImFontConfig cfg;
     cfg.OversampleH = 3; cfg.OversampleV = 2; cfg.PixelSnapH = true;
     if (GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES)
@@ -217,7 +218,8 @@ void capturarTela()
 
 } // namespace
 
-namespace masdr { bool g_pedirCaptura = false; std::string g_ultimaCaptura; }
+namespace masdr { bool g_pedirCaptura = false; std::string g_ultimaCaptura;
+                 bool g_pedirMinimizar = false; }   // o "-" do INICIO (Ui.cpp)
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int)
 {
@@ -378,6 +380,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int)
             }
         }
         if (masdr::g_pedirCaptura) { masdr::g_pedirCaptura = false; capturarTela(); }
+        if (masdr::g_pedirMinimizar) {          // "-": o app todo para a barra de tarefas
+            masdr::g_pedirMinimizar = false;
+            ShowWindow(hwnd, SW_MINIMIZE);
+        }
         if (g_dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) g_perdido = true;
 
         // No maximo ~30 quadros por segundo: a tela fica fluida e sobra

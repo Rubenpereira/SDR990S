@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SDR990S VERSION 1.1.5 LANGUAGES C CXX)
+project(SDR990S VERSION 1.2.4 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 #  SDR-990S - receptor SDR com painel de radio (Windows 7 SP1 ate 11)
@@ -52,6 +52,9 @@ set(SOURCES
     src/decoders/SstvCore.cpp
     src/decoders/WefaxCore.cpp
     src/decoders/PactorCore.cpp
+    src/decoders/OliviaCore.cpp
+    src/decoders/StanagCore.cpp
+    src/decoders/BpskCore.cpp
     src/decoders/Ft8Core.cpp
     third_party/ft8_lib/ft8/constants.c
     third_party/ft8_lib/ft8/crc.c
@@ -65,6 +68,25 @@ set(SOURCES
     src/ui/Ui.cpp
     src/ui/Painel.cpp
     src/ui/Idioma.cpp
+    src/ui/Satelites.cpp
+    src/sat/Rastreador.cpp
+    src/sat/SatCatalogo.cpp
+    third_party/sgp4/CoordGeodetic.cpp
+    third_party/sgp4/CoordTopocentric.cpp
+    third_party/sgp4/DateTime.cpp
+    third_party/sgp4/DecayedException.cpp
+    third_party/sgp4/Eci.cpp
+    third_party/sgp4/Globals.cpp
+    third_party/sgp4/Observer.cpp
+    third_party/sgp4/OrbitalElements.cpp
+    third_party/sgp4/SatelliteException.cpp
+    third_party/sgp4/SGP4.cpp
+    third_party/sgp4/SolarPosition.cpp
+    third_party/sgp4/TimeSpan.cpp
+    third_party/sgp4/Tle.cpp
+    third_party/sgp4/TleException.cpp
+    third_party/sgp4/Util.cpp
+    third_party/sgp4/Vector.cpp
     src/dsp/Demodulator.cpp
     src/dsp/DemodAM.cpp
     src/dsp/DemodFM.cpp
@@ -102,7 +124,7 @@ target_compile_definitions(SDR990S PRIVATE
     RTLSDR_AVAILABLE=${RTLSDR_AVAILABLE}
     SDRPLAY_AVAILABLE=${SDRPLAY_AVAILABLE}
 )
-target_link_libraries(SDR990S PRIVATE d3d9 winmm ws2_32 shell32 advapi32 user32 kernel32 gdi32 dwmapi ole32)
+target_link_libraries(SDR990S PRIVATE d3d9 winmm ws2_32 wininet shell32 advapi32 user32 kernel32 gdi32 dwmapi ole32)
 
 if(RTLSDR_AVAILABLE)
     foreach(lib rtlsdr.lib librtlsdr.lib)

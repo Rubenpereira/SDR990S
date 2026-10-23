@@ -136,6 +136,7 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
     c.set("device", tipo_);
     c.set("serial", tipo == "rtltcp" ? std::string() : serial_);
     dcBlock_.reset();
+    iqCorr_.reset();
     fase_ = 0.0;
     // Algumas opcoes so pegam depois do open (mesma ordem do RXSDR principal).
     dev_->setSampleRate(c.sampleRate());
@@ -164,7 +165,7 @@ bool Radio::ligar(bool on, std::string& erro)
     std::lock_guard<std::mutex> lk(devMutex_);
     if (!dev_) return !on;
     if (on) {
-        if (!ligado_) { dcBlock_.reset(); dev_->start(); }
+        if (!ligado_) { dcBlock_.reset(); iqCorr_.reset(); dev_->start(); }
         ligado_ = true;
     } else {
         if (ligado_) dev_->stop();
@@ -474,6 +475,16 @@ void Radio::ligarCallback()
         std::vector<std::complex<float>> semDc;
         if (vfoNoDc) semDc.assign(iq, iq + n);
         if (usaDc) for (size_t i = 0; i < n; ++i) work[i] = dcBlock_.process(work[i]);
+        // Corrigir IQ (janela de Configuracao): o dongle entrega I e Q com
+        // amplitude/fase levemente tortas e isso desenha o "sinal espelho"
+        // no espectro. Mede sempre (a correcao liga no ato) e aplica a
+        // matrix do IqCorretor nos dois caminhos (com e sem o bloco de DC).
+        iqCorr_.medir(work.data(), n);
+        iqCorr_.pacote();
+        if (cfg.iqFix()) {
+            for (auto& s : work)  s = iqCorr_.corrigir(s);
+            for (auto& s : semDc) s = iqCorr_.corrigir(s);
+        }
         if (uiGain != 1.0f) {
             for (auto& s : work)  s *= uiGain;
             for (auto& s : semDc) s *= uiGain;

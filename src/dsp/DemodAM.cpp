@@ -31,8 +31,10 @@ void DemodAM::process(const std::complex<float>* iq, size_t n, uint32_t sampleRa
     // Pre-filtro IIR LPF (RF) e Pós-filtros de Áudio
     // A frequência de corte de RF é metade da largura de banda (BW) selecionada na UI multiplicada por 1.35 (folga).
     // Isso evita a atenuação precoce da borda e elimina o tom abafado/fanhoso do AM.
+    // Teto em 30 kHz: o APT dos satélites meteorológicos ocupa ~34 kHz em volta
+    // da portadora (137,9 MHz) e precisa passar inteiro para a imagem sair.
     float wantFc = (bwHz_ > 0) ? (static_cast<float>(bwHz_) / 2.0f) * 1.35f : 6750.0f;
-    wantFc = std::clamp(wantFc, 3000.0f, 15000.0f); // limites de segurança expandidos para AM claro
+    wantFc = std::clamp(wantFc, 3000.0f, 30000.0f); // limites de segurança expandidos para AM claro
 
     const float wantFs = static_cast<float>(rate);
     const float audioFs = static_cast<float>(actualAudioRate);
@@ -42,8 +44,10 @@ void DemodAM::process(const std::complex<float>* iq, size_t n, uint32_t sampleRa
         lpf_.setCutoff(wantFc, wantFs);
         lpf_.reset();
 
-        // O pós-filtro de áudio também é configurado com folga de 30% (wantFc * 1.30f)
-        const float audioLpfFc = std::min(18000.0f, wantFc * 1.30f);
+        // O pós-filtro de áudio também é configurado com folga de 30% (wantFc * 1.30f).
+        // Teto de 8 kHz: no APT (AM de banda larga) o áudio útil é a subportadora
+        // de 2400 Hz; acima disso é só chiado, que o AGC amplificaria.
+        const float audioLpfFc = std::min(8000.0f, wantFc * 1.30f);
         audioLpf_.setCutoff(audioLpfFc, audioFs);
         audioLpf_.reset();
         

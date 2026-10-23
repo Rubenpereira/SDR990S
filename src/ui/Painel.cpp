@@ -1967,32 +1967,35 @@ void Ui::telaSub()
         }
         if (txVfo_ != ativo_) texto(f_.painel, 7.f, 892, 104, P_AMBAR, "SPLIT", 0.5f);
         if (tracking_) texto(f_.painel, 7.f, 944, 104, P_CIANO, "TRACK", 0.5f);
-        arcoVfo();
     } else if (sDisp_ == 1) {
         SYSTEMTIME u, l; GetSystemTime(&u); GetLocalTime(&l);
         std::snprintf(b, sizeof b, "%02d:%02d:%02d", u.wHour, u.wMinute, u.wSecond);
-        texto(f_.painel, 8.f, 892, 48, P_CIANO, "UTC", 0.5f);
-        texto(f_.lcd, 36.f, 892, 60, P_BRANCO, b, 0.5f);
+        texto(f_.painel, 8.f, 892, 40, P_CIANO, "UTC", 0.5f);
+        texto(f_.lcd, 36.f, 892, 52, P_BRANCO, b, 0.5f);
         std::snprintf(b, sizeof b, "%02d:%02d:%02d", l.wHour, l.wMinute, l.wSecond);
-        texto(f_.painel, 8.f, 892, 136, P_CIANO, "LOCAL", 0.5f);
-        texto(f_.lcd, 26.f, 892, 148, IM_COL32(0xc6, 0xcc, 0xd8, 255), b, 0.5f);
+        texto(f_.painel, 8.f, 892, 104, P_CIANO, "LOCAL", 0.5f);
+        texto(f_.lcd, 26.f, 892, 114, IM_COL32(0xc6, 0xcc, 0xd8, 255), b, 0.5f);
         std::snprintf(b, sizeof b, "%02d/%02d/%04d", l.wDay, l.wMonth, l.wYear);
-        texto(f_.painel, 8.f, 892, 214, P_ROTULO2, b, 0.5f);
+        texto(f_.painel, 8.f, 892, 150, P_ROTULO2, b, 0.5f);
     } else {
         texto(f_.painel, 7.f, 792, 40, P_AMARELO, r_.decoders().tipo() == Decoders::NENHUM ? "DECODER: nenhum (DATA abre)" : "DECODER");
         std::vector<std::string> linhas;
         std::string a;
         for (char ch : decTexto_) { if (ch == '\n') { linhas.push_back(a); a.clear(); } else if ((unsigned char)ch >= 32) a += ch; }
         if (!a.empty()) linhas.push_back(a);
-        const int n = 16;
+        const int n = 12;
         const int ini = std::max(0, (int)linhas.size() - n);
-        float y = 52;
+        float y = 40;
         for (int i = ini; i < (int)linhas.size(); ++i) {
             texto(f_.mono ? f_.mono : f_.painel, 7.4f, 792, y, P_VERDE, linhas[i].substr(0, 44).c_str());
-            y += 11.6f;
+            y += 10.2f;
         }
     }
     if (dim_ > 0) dl->AddRectFilled(M.p(786, 36), M.p(998, 244), IM_COL32(0, 0, 0, dim_ * 45));
+    // A escala do VFO (a meia-lua de prata) faz parte do painel: aparece em
+    // TODOS os modos da tela pequena. Antes ela so aparecia no modo MAIN/SUB
+    // e sumia sozinho no relogio/decodificador.
+    arcoVfo();
 }
 
 // Escala em meia-lua embaixo da tela SUB: o alto de um tambor grande visto

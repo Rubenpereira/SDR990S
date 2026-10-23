@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../dsp/Filters.h"
+#include "../dsp/IqCorretor.h"
 #include "SomNativo.h"
 #include "Decoders.h"
 
@@ -128,6 +129,7 @@ private:
     std::mutex demodMutex_;
 
     IirDcBlock dcBlock_;
+    IqCorretor iqCorr_;               // "Corrigir IQ": desequilibrio de amplitude/fase
     double fase_ = 0.0;
     std::atomic<int64_t> ultimoIqMs_{0};
     std::atomic<float>   pico_{-120.f};

@@ -75,6 +75,7 @@ public:
     int         gainTenths() const { return (int)num("gain", 496); }
     bool        agc()        const { return flag("agc", false); }
     bool        biasT()      const { return flag("bias_t", false); }
+    bool        iqFix()      const { return flag("iq_fix", false); }
     int         ppm()        const { return (int)num("ppm", 0); }
     // amostragem direta (ramo Q): "off", "on" ou "auto" (liga abaixo de 24 MHz)
     std::string qmode()      const { return str("qmode", "auto"); }

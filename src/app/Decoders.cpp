@@ -61,13 +61,17 @@ const char* Decoders::nome(Tipo t)
     case APRS: return "APRS";
     case ACARS: return "ACARS (131,550 / 131,825)";
     case VDL2: return "VDL2 (136,975)";
-    case ANALISE: return T("Analisar sinal");
+    case ANALISE: return T("ANALISAR SINAL");
     case DRM: return T("DRM (rádio digital)");
     case SSTV: return T("SSTV (imagens)");
     case WEFAX: return T("WEFAX (fax meteorológico)");
     case PACTOR: return T("PACTOR-I (Marinha / FEC)");
     case FT8: return T("FT8 (radioamador, WSJT-X)");
     case FT4: return T("FT4 (radioamador, WSJT-X)");
+    case SATELITES: return T("SATÉLITES");
+    case OLIVIA: return "OLIVIA";
+    case STANAG: return "STANAG 4285";
+    case BPSK: return "PSK (BPSK/QPSK)";
     default: return T("Nenhum");
     }
 }
@@ -215,6 +219,25 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
         wefax_.limpar();
         escrever(T("[WEFAX] esperando o tom de inicio (300 Hz) - a fase acerta a margem e as linhas por minuto sozinha\n"));
         break;
+    case OLIVIA:
+        olivia_.limpar();
+        escrever(T("[OLIVIA] USB - tons centrados em 1500 Hz; o texto decodificado sai na caixa de baixo.\n"));
+        break;
+    case STANAG: {
+        StanagCore::Params sp;
+        sp.sampleRate = kTaxa;
+        sp.centerHz   = 1800.0;          // a portadora do STANAG no audio
+        sp.userRate   = a.stanagVel;
+        sp.longIlv    = a.stanagLongo;
+        sp.framing    = 0;
+        stanag_.setModo(sp);
+        escrever(T("[STANAG 4285] USB - sinal centrado em 1800 Hz acima do dial; o texto sai na caixa de baixo.\n"));
+        break;
+    }
+    case BPSK:
+        bpsk_.setModo(a.bpskModo);
+        escrever(T("[PSK] USB - sinal centrado em 1800 Hz acima do dial; o texto sai na caixa de baixo.\n"));
+        break;
     case FT8:
     case FT4:
         ft8_ = std::make_unique<Ft8Core>(kTaxa, t == FT4);
@@ -249,7 +272,7 @@ void Decoders::parar()
 void Decoders::empurrar(const int16_t* pcm, size_t n, uint32_t sps)
 {
     const Tipo tp = tipo_.load();
-    if (tp == NENHUM || tp == TETRA || tp == HFDL || tp == AIS || tp == ACARS || tp == VDL2 || tp == DRM || !pcm || !n || !sps) return;
+    if (tp == NENHUM || tp == SATELITES || tp == TETRA || tp == HFDL || tp == AIS || tp == ACARS || tp == VDL2 || tp == DRM || !pcm || !n || !sps) return;
     {
         std::lock_guard<std::mutex> lk(filaMutex_);
         if (sps != filaSps_) { fila_.clear(); filaAmostras_ = 0; filaSps_ = sps; }
@@ -465,6 +488,24 @@ void Decoders::alimentar(const float* x, size_t n)
                 saida += "\n";
             }
         }
+        else if (tipo_.load() == OLIVIA) {
+            // o OLIVIA e decodificado aqui: o texto sai na janela
+            olivia_.alimentar(x, n);
+            const std::string t = olivia_.pegarTexto();
+            if (!t.empty()) saida += t;
+        }
+        else if (tipo_.load() == STANAG) {
+            // o STANAG 4285 e decodificado aqui: o texto sai na janela
+            stanag_.alimentar(x, n);
+            const std::string t = stanag_.pegarTexto();
+            if (!t.empty()) saida += t;
+        }
+        else if (tipo_.load() == BPSK) {
+            // PSK31/63/125/250, QPSK e os "R": texto imediato, igual ao STANAG
+            bpsk_.alimentar(x, n);
+            const std::string t = bpsk_.pegarTexto();
+            if (!t.empty()) saida += t;
+        }
     }
     if (!saida.empty()) escrever(saida);
 }
@@ -602,6 +643,24 @@ std::string Decoders::estado()
     std::lock_guard<std::mutex> lk(coreMutex_);
     char b[200];
     std::snprintf(b, sizeof b, "%s", T("Parado"));
+    if (tipo_.load() == SATELITES) std::snprintf(b, sizeof b, "%s", T("Satélites - fonia: o áudio é do rádio"));
+    if (tipo_.load() == OLIVIA) {
+        const auto e = olivia_.estado();
+        std::snprintf(b, sizeof b, T("OLIVIA  |  %s"), e.texto.c_str());
+    }
+    if (tipo_.load() == STANAG) {
+        const auto e = stanag_.estado();
+        std::snprintf(b, sizeof b, T("%s  |  SNR %.1f dB  |  desvio %+.1f Hz  |  %d quadros  |  %d bits de dados"),
+                      e.ok ? T("SINCRONIZADO") : T("procurando"),
+                      e.snrDb, e.desvioHz, e.quadros, e.bits);
+    }
+    if (tipo_.load() == BPSK) {
+        const auto e = bpsk_.estado();
+        std::snprintf(b, sizeof b, T("%s  |  %s  |  nivel %.1f dB  |  desvio %+.1f Hz  |  qualidade %.0f  |  %ld caracteres"),
+                      e.ok ? T("recebendo") : T("procurando"),
+                      BpskCore::nomeModo(aj_.bpskModo),
+                      e.nivelDb, e.desvioHz, e.metrica, e.caracteres);
+    }
     if (cw_)
         std::snprintf(b, sizeof b, T("tom %.0f Hz  |  %.0f palavras/min  |  %d letras"),
                       cw_->tomMedido(), cw_->ppm(), cw_->letras());
@@ -729,6 +788,8 @@ bool Decoders::travado()
     if (cw_) return cw_->ppm() > 0;
     if (ft8_) return ft8_->noUltimoPeriodo() > 0;
     if (tipo_.load() == TETRA) return tetra_.estado().travado;
+    if (tipo_.load() == STANAG) return stanag_.estado().ok;
+    if (tipo_.load() == BPSK) return bpsk_.estado().ok;
     if (tipo_.load() == SSTV) return sstv_.status().estado == SstvCore::RECEBENDO;
     if (tipo_.load() == WEFAX) return wefax_.status().estado == WefaxCore::RECEBENDO;
     if (tipo_.load() == DRM) { const EstadoDrm e = drm_.estado(); return e.tempo == 0 && e.fac == 0; }

@@ -29,8 +29,11 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include "StanagFreqs.h"
 
 namespace masdr {
+
+extern bool g_pedirMinimizar;   // main.cpp: o "-" manda o app para a barra de tarefas
 
 #define TEXID(t) ((ImTextureID)(intptr_t)(t))
 
@@ -328,11 +331,13 @@ void Ui::lerPedidoTeste()
         else if (l == "ms") trocarMainSub();
         else if (l.rfind("velbaixo ", 0) == 0) wfSpeed_ = std::clamp((float)std::atof(l.c_str() + 9), 1.f, 10.f);
         else if (l.rfind("velesc ", 0) == 0) wfSpeedEsc_ = std::clamp((float)std::atof(l.c_str() + 7), 1.f, 10.f);
+        else if (l.rfind("satsel ", 0) == 0) satSel_ = std::atoi(l.c_str() + 7);         // satelite (indice do catalogo)
+        else if (l.rfind("satsint ", 0) == 0) sintonizarSat(std::atoi(l.c_str() + 8));
         else if (l == "main") ativar(0);
         else if (l == "sub") ativar(1);
         else if (l.rfind("decoder ", 0) == 0) {
             const std::string n = l.substr(8);
-            const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : Decoders::NENHUM;
+            const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : n == "SAT" ? Decoders::SATELITES : Decoders::NENHUM;
             decAberta_ = t != Decoders::NENHUM;
             escolherDecoder(t, true);
         }
@@ -575,7 +580,7 @@ void Ui::abrirConfig()
         cfgQ_ = c.qmode() == "off" ? 0 : c.qmode() == "on" ? 1 : 2;
         cfgFft_ = 3;
         for (int i = 0; i < 5; ++i) if (kFfts[i] == c.fftSize()) cfgFft_ = i;
-        cfgAgc_ = c.agc(); cfgBias_ = c.biasT(); cfgPpm_ = c.ppm();
+        cfgAgc_ = c.agc(); cfgBias_ = c.biasT(); cfgIq_ = c.iqFix(); cfgPpm_ = c.ppm();
         cfgGanho_ = c.gainTenths() / 10.f;
         cfgLna_ = c.sdrplayLna(); cfgIfGain_ = c.sdrplayIfGain(); cfgIfAgc_ = c.sdrplayIfAgc();
         cfgS9Hf_ = (int)c.num("s9_hf", -94); cfgS9Vhf_ = (int)c.num("s9_vhf", -93);
@@ -2040,6 +2045,15 @@ void Ui::janelaConfig()
         ImGui::SetNextItemWidth(102 * s_);
         if (ImGui::InputInt("##ppmn", &cfgPpm_, 1, 10)) cfgPpm_ = std::clamp(cfgPpm_, -150, 150);
         rot(T("Bias-T (alimenta LNA)")); ImGui::Checkbox("##bias", &cfgBias_);
+        // "Corrigir IQ": no mesmo linha, a direita do Bias-T. Vale na hora
+        // (e também fica gravado: e um estado do processamento, não do dongle)
+        ImGui::SameLine(0.f, 22.f * s_);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T("Corrigir IQ"));
+        ImGui::SameLine();
+        if (ImGui::Checkbox("##corriq", &cfgIq_)) Config::instance().set("iq_fix", cfgIq_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(T("Iguala a amplitude e a fase dos canais I/Q: o sinal espelho (a cópia fraca em espelho do sinal forte) some do espectro. Receptor direto (RTL-SDR/RTL-TCP) sempre tem um pouco disso."));
     } else {
         rot("LNA (0-9)"); ImGui::SliderInt("##lna", &cfgLna_, 0, 9);
         rot(T("Ganho FI (dB)")); ImGui::SliderInt("##ifg", &cfgIfGain_, 20, 59);
@@ -2170,7 +2184,7 @@ void Ui::gravarAjustes()
     c.set("sample_rate", (long long)kTaxas[cfgTaxa_]);
     c.set("qmode", std::string(cfgQ_ == 0 ? "off" : cfgQ_ == 1 ? "on" : "auto"));
     c.set("fft_size", kFfts[cfgFft_]);
-    c.set("agc", cfgAgc_); c.set("bias_t", cfgBias_); c.set("ppm", cfgPpm_);
+    c.set("agc", cfgAgc_); c.set("bias_t", cfgBias_); c.set("iq_fix", cfgIq_); c.set("ppm", cfgPpm_);
     c.set("gain", (int)std::lround(cfgGanho_ * 10));
     ganhoRf_ = std::clamp(100.f - cfgGanho_ * 10 / 4.96f, 0.f, 100.f);
     c.set("sdrplay_lna", cfgLna_); c.set("sdrplay_if_gain", cfgIfGain_); c.set("sdrplay_if_agc", cfgIfAgc_);
@@ -2521,7 +2535,8 @@ namespace {
 // hor: janelas UTC "hhmm-hhmm hhmm-hhmm" (grade de horarios) - no ar agora fica verde
 // dica: estacoes e horarios (aparece com o mouse em cima). hz = 0: titulo de grupo.
 struct CanalDec { uint64_t hz; const char* nome; float baud; float shift; bool meio;
-                  const char* hor = nullptr; const char* dica = nullptr; };
+                  const char* hor = nullptr; const char* dica = nullptr;
+                  int tons = 0, olBanda = 0; };   // OLIVIA: tons e largura de banda
 
 // RTTY - "meio": a frequencia publicada e o CENTRO do sinal (DWD); o VFO vai
 // 1500 Hz abaixo e os dois tons caem no meio da faixa USB (igual a pagina).
@@ -2537,6 +2552,38 @@ const CanalDec kCanaisRtty[] = {
     {7646000, "7646 kHz - DWD Alemanha (meteorologia)", 50, 450, true},
     {4583000, "4583 kHz - DWD Alemanha (meteorologia)", 50, 450, true},
     {147300, "147,3 kHz - DWD Alemanha (ondas longas)", 50, 450, true},
+};
+// OLIVIA - frequencias de chamada do site oliviadigitalmode.org (20/10/2026).
+// A frequencia publicada e o CENTRO do sinal: o VFO (USB) fica 1500 Hz abaixo,
+// e o conjunto de tons (centrado em 1500 Hz no audio) cai na parte alta da
+// faixa USB. Os tons de cada banda: 8/250 (o mais usado), 16/500 e 32/1000.
+const CanalDec kCanaisOlivia[] = {
+    {1839000, "1839,0 kHz - 160 m (ITU regiao 1) - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 1839,0 kHz (centro)\n1.837,5 kHz no radio (USB)\nRegiao 1 da UIT", 8, 250},
+    {1827000, "1827,0 kHz - 160 m (ITU regiao 2) - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 1827,0 kHz (centro)\n1.825,5 kHz no radio (USB)\nRegiao 2 da UIT", 8, 250},
+    {3583000, "3583,0 kHz - 80 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 3583,0 kHz (centro)\n3.581,5 kHz no radio (USB)", 8, 250},
+    {7040000, "7040,0 kHz - 40 m (ITU regiao 2) - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 7040,0 kHz (centro)\n7.038,5 kHz no radio (USB)\nRegiao 2 da UIT", 8, 250},
+    {7072500, "7072,5 kHz - 40 m (secundario) - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 7072,5 kHz (centro)\n7.071,0 kHz no radio (USB)", 8, 250},
+    {10143000, "10143,0 kHz - 30 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 10143,0 kHz (centro)\n10.141,5 kHz no radio (USB)", 8, 250},
+    {10144000, "10144,0 kHz - 30 m (potencial) - 32/1000", 0, 0, true, nullptr,
+     "OLIVIA 32/1000 - 10144,0 kHz (centro)\n10.142,5 kHz no radio (USB)", 32, 1000},
+    {14072500, "14072,5 kHz - 20 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 14072,5 kHz (centro)\n14.071,0 kHz no radio (USB)\nNao entrar nos 14073,5 kHz e acima (FT8/JT65)", 8, 250},
+    {14108500, "14108,5 kHz - 20 m - 32/1000", 0, 0, true, nullptr,
+     "OLIVIA 32/1000 - 14108,5 kHz (centro)\n14.107,0 kHz no radio (USB)", 32, 1000},
+    {18099000, "18099,0 kHz - 17 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 18099,0 kHz (centro)\n18.097,5 kHz no radio (USB)", 8, 250},
+    {21072500, "21072,5 kHz - 15 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 21072,5 kHz (centro)\n21.071,0 kHz no radio (USB)", 8, 250},
+    {24922500, "24922,5 kHz - 12 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 24922,5 kHz (centro)\n24.921,0 kHz no radio (USB)", 8, 250},
+    {28122500, "28122,5 kHz - 10 m - 8/250", 0, 0, true, nullptr,
+     "OLIVIA 8/250 - 28122,5 kHz (centro)\n28.121,0 kHz no radio (USB)", 8, 250},
 };
 // SITOR-B e DSC (lista de estacoes do autor, 04/10/2026): uma linha por
 // transmissao, em ordem de horario UTC; estacoes sem identificacao ficam de fora.
@@ -3295,6 +3342,47 @@ bool comboCanal(const char* id, const CanalDec (&c)[N], int& sel, bool comBusca 
     }
     return mudou;
 }
+
+// STANAG 4285: o rotulo da lista (a frequencia em kHz, o pais e as
+// velocidades que a estacao usa). O campo khz guarda Hz na verdade.
+std::string rotuloStanag(int i)
+{
+    char b[96];
+    const StanagFreq& f = kStanagFreqs[i];
+    const char* vel = f.vel == 3 ? "600/1200" : (f.vel & 1) ? "600" : "1200";
+    std::snprintf(b, sizeof b, (f.khz % 1000) ? "%.1f kHz - %s (%s)" : "%.0f kHz - %s (%s)",
+                  f.khz / 1000.0, kStanagPaises[f.pais], vel);
+    return b;
+}
+bool comboStanag(const char* id, int& sel)
+{
+    bool mudou = false;
+    const std::string prev = sel >= 0 && sel < kStanagFreqN ? rotuloStanag(sel) : T("- escolha para sintonizar -");
+    if (ImGui::BeginCombo(id, prev.c_str(), ImGuiComboFlags_HeightLarge)) {
+        bool rolar = ImGui::IsWindowAppearing();
+        const std::string q = campoBuscaLista(T("buscar: frequência (8416,5) ou país (frança)"));
+        if (!q.empty()) {
+            int achados = 0;
+            for (int i = 0; i < kStanagFreqN; ++i)
+                if (buscaBate(kStanagFreqs[i].khz, rotuloStanag(i), q)) ++achados;
+            resultadoBusca(q, achados);
+            rolar = false;
+        }
+        ImGui::Separator();
+        ImGui::BeginChild("##listastanag", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 20));
+        for (int i = 0; i < kStanagFreqN; ++i) {
+            const std::string r = rotuloStanag(i);
+            if (!q.empty() && !buscaBate(kStanagFreqs[i].khz, r, q)) continue;
+            if (rolar && sel >= 0 && i == sel) { ImGui::SetScrollHereY(0.1f); rolar = false; }
+            ImGui::PushID(i);
+            if (ImGui::Selectable(r.c_str(), sel == i)) { sel = i; mudou = true; }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+       ImGui::EndCombo();
+    }
+    return mudou;
+}
 }
 
 // HFDL: as bandas da pagina (canais da tabela de estacoes do dumphfdl).
@@ -3494,8 +3582,22 @@ void Ui::sintonizarDecoder(int t)
 void Ui::escolherDecoder(int t, bool sintonizarModo)
 {
     decTipo_ = t;
+    decMin_ = false;          // escolher um decodificador traz o painel de volta da barra
     auto& d = r_.decoders();
     if (t == Decoders::NENHUM) { d.parar(); decRodando_ = false; devolverModo(); return; }
+    if (t == Decoders::SATELITES) {
+        // o painel de satelites; o decodificador de verdade (SSTV, APRS ou
+        // nenhum) e o que o satelite sintonizado pede
+        if (sintonizarModo && !decModoGuardado_) {
+            decModoAntes_ = r_.modo(); decBwAntes_ = r_.banda(); decModoGuardado_ = true;
+            decFreqAntes_ = r_.vfo(); decTaxaAntes_ = Config::instance().sampleRate();
+            decMudouFreq_ = decMudouTaxa_ = false;
+        }
+        if (!sintonizarModo) decRodando_ = false;   // Iniciar / Reiniciar: liga de novo
+        iniciarSubSat();
+        if (sintonizarModo) sstvAumentar_ = true;
+        return;
+    }
     const bool externoComSintonia = t == Decoders::HFDL || t == Decoders::AIS || t == Decoders::APRS ||
                                     t == Decoders::ACARS || t == Decoders::VDL2;
     const bool centroFixo = t == Decoders::HFDL || t == Decoders::ACARS || t == Decoders::VDL2;
@@ -3538,6 +3640,20 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
         r_.setBanda(25000);
     } else if (t == Decoders::CW) {
         if (m != "CW" && m != "USB" && m != "LSB") mudarModo("CW");
+    } else if (t == Decoders::OLIVIA) {
+        // o texto do OLIVIA e curto: a janela encolhe (um pouco menos da metade)
+        if (m != "USB") mudarModo("USB");
+        if (r_.banda() < 3000) r_.setBanda(3000);
+        oliviaEncolher_ = true;
+    } else if (t == Decoders::STANAG) {
+        // a portadora unica de 1800 Hz pede USB com banda folgada (o sinal
+        // vai e vem ~1,65 kHz em volta de 1800 Hz)
+        if (m != "USB") mudarModo("USB");
+        if (r_.banda() < 3000) r_.setBanda(3000);
+    } else if (t == Decoders::BPSK) {
+        // PSK31/63/125/250 e os "R": portadora unica em 1800 Hz, USB e 3 kHz
+        if (m != "USB") mudarModo("USB");
+        if (r_.banda() < 3000) r_.setBanda(3000);
     } else if (t != Decoders::ANALISE) {
         // Os nucleos FSK esperam USB (mark = tom alto), igual a pagina.
         // Para RTTY de radioamador em LSB existe o "Inverter".
@@ -3691,7 +3807,7 @@ void Ui::atualizarSstv()
         }
     }
     int w = 0, h = 0;
-    if (decTipo_ != Decoders::SSTV) return;
+    if (decTipo_ != Decoders::SSTV && !(decTipo_ == Decoders::SATELITES && d.tipo() == Decoders::SSTV)) return;
     if (!sv.imagem(sstvBuf_, w, h, sstvVer_)) return;
     sstvW_ = w; sstvH_ = h;
     if (w <= 0 || h <= 0) return;
@@ -4231,10 +4347,28 @@ void Ui::tabelaFt8(bool chegou)
 void Ui::janelaDecoders()
 {
     auto& d = r_.decoders();
+    // Janela de decodificadores minimizada (qualquer decodificador): mistura
+    // a janela inteira numa barra fina fixa no rodape da janela do app (o
+    // radio continua a vista). O estado vive em decMin_, e o "Minimizar" do
+    // painel de satelites e o tracinho da barra de titulo entram ambos nesse
+    // estado.
+    // CUIDADO: no ImGui o ULTIMO SetNextWindowSize/SetNextWindowPos de um
+    // quadro vale — por isso os "Always" da barra vem DEPOIS do
+    // "FirstUseEver" do tamanho normal, embaixo.
+    const bool decMin = decMin_;
     ImGui::SetNextWindowSize(ImVec2(640 * s_, 420 * s_), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImGui::GetIO().DisplaySize * 0.5f, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (decMin) {
+        const ImVec2 tela2 = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowSize(ImVec2(560 * s_, 36 * s_), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(tela2.x * 0.5f, tela2.y - 10 * s_), ImGuiCond_Always, ImVec2(0.5f, 1.f));
+    }
     bool aberta = true;
-    if (!ImGui::Begin(T("Decodificadores###dec"), &aberta, ImGuiWindowFlags_NoCollapse)) {
+    ImGuiWindowFlags flDec = ImGuiWindowFlags_NoCollapse;
+    if (decMin) flDec |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+                         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings;
+    if (!ImGui::Begin(T("Decodificadores###dec"), &aberta, flDec)) {
         ImGui::End();
         if (!aberta) { decAberta_ = false; escolherDecoder(Decoders::NENHUM, false); atualizarSstv(); atualizarWefax(); }
         return;
@@ -4242,16 +4376,80 @@ void Ui::janelaDecoders()
     atualizarSstv();
     atualizarWefax();
     // SSTV: a janela cresce para caber a imagem (so na hora de escolher)
-    if (sstvAumentar_) {
+    // OLIVIA: a janela ENCOLHE (um pouco menos da metade da tela): o texto
+    // nao precisa de tanto e o resto do painel continua aparecendo.
+    if (sstvAumentar_ || oliviaEncolher_) {
+        const bool olivia = oliviaEncolher_;
         sstvAumentar_ = false;
+        oliviaEncolher_ = false;
         const ImVec2 tela = ImGui::GetIO().DisplaySize;
         const ImVec2 sz = ImGui::GetWindowSize();
-        const ImVec2 alvo(std::min(tela.x * 0.96f, std::max(sz.x, 980 * s_)), std::min(tela.y * 0.92f, std::max(sz.y, 700 * s_)));
+        const bool sat = decTipo_ == Decoders::SATELITES;   // satelites: lista + polar + mapa
+        ImVec2 alvo;
+        if (olivia) alvo = ImVec2(std::min(tela.x * 0.95f, std::max(560.f * s_, tela.x * 0.47f)),
+                                std::min(tela.y * 0.92f, std::max(320.f * s_, tela.y * 0.47f)));
+        else alvo = ImVec2(std::min(tela.x * 0.96f, std::max(sz.x, (sat ? 1240 : 980) * s_)), std::min(tela.y * 0.92f, std::max(sz.y, (sat ? 860 : 700) * s_)));
         ImGui::SetWindowSize(alvo);
         ImVec2 pos = ImGui::GetWindowPos();
         pos.x = std::clamp(pos.x, 0.f, std::max(0.f, tela.x - alvo.x));
         pos.y = std::clamp(pos.y, 0.f, std::max(0.f, tela.y - alvo.y));
         ImGui::SetWindowPos(pos);
+    }
+
+    // --- janela minimizada: a barra fina do rodape ---
+    if (decMin) {
+        const bool eSat = decTipo_ == Decoders::SATELITES;   // a barra do satelite mostra a passagem
+        if (eSat) atualizarSatMin();
+        char rot[64];
+        std::snprintf(rot, sizeof rot, "%s ▲", Decoders::nome((Decoders::Tipo)decTipo_));
+        if (ImGui::Button(rot)) {                            // restaurar o painel
+            decMin_ = false;
+            sstvAumentar_ = true;                            // mecanismo de retomar o tamanho grande
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Voltar ao painel"));
+        ImGui::SameLine();
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::SameLine();
+        if (eSat) ImGui::TextUnformatted(satInfoMin_.empty() ? "Satélites" : satInfoMin_.c_str());
+        else {
+            // os outros: situacao breve, para a barra nao ficar vazia
+            ImGui::TextUnformatted(decRodando_ ? T("recebendo — clique para restaurar o painel")
+                                               : T("parado — clique para restaurar o painel"));
+        }
+        ImGui::End();
+        if (!aberta) { decAberta_ = false; escolherDecoder(Decoders::NENHUM, false); atualizarSstv(); atualizarWefax(); }
+        return;
+    }
+
+    // --- botao de minimizar: a janela de decodificadores inteira (qualquer
+    // decodificador escolhido) vira a barra fina do rodape, acima (o app
+    // do radio continua a vista; aqui dentro e so um desenho ImGui sobre a
+    // unica janela do sistema). O botao fica NA BARRA DE TITULO, colado a
+    // esquerda do X de fechar: o X do ImGui ocupa um quadrado de FontSize
+    // no canto direito (close x = Max.x - FramePadding.x - FontSize,
+    // conferido no imgui.cpp).
+    // A recorte do conteudo EXCLUI a barra de titulo, entao o tracinho e
+    // desenhado com a recorte aberta (PushClipRect na tela inteira) e o
+    // clique e testado a mao (IsMouseHoveringRect com clip=false). O
+    // tracinho fica sempre branco, igual ao X do fechar.
+    {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float fsz = ImGui::GetFontSize();
+        const ImVec2 wp = ImGui::GetWindowPos();
+        const float xX = wp.x + ImGui::GetWindowWidth() - st.FramePadding.x - fsz;
+        const float y = wp.y + st.FramePadding.y;           // mesma linha do X
+        const ImVec2 b0(xX - st.ItemInnerSpacing.x - fsz, y);
+        const ImVec2 b1(b0.x + fsz, b0.y + fsz);
+        const bool emCima = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(b0, b1, false);
+        if (emCima)
+            ImGui::SetTooltip(T("Minimizar: vira a barra fina no rodapé da janela (o rádio continua à vista)"));
+        if (emCima && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) decMin_ = true;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImGui::PushClipRect(ImVec2(-8192.f, -8192.f), ImVec2(8192.f, 8192.f), false);
+        const float ly = b0.y + fsz * 0.5f;
+        dl->AddLine(ImVec2(b0.x + fsz * 0.30f, ly), ImVec2(b0.x + fsz * 0.70f, ly),
+                    IM_COL32(0xff, 0xff, 0xff, 0xff), std::max(1.5f, 2.f * s_));
+        ImGui::PopClipRect();
     }
 
     // --- escolha do decodificador ---
@@ -4263,7 +4461,7 @@ void Ui::janelaDecoders()
         static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::FT8, Decoders::FT4, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
                                      Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::HFDL, Decoders::AIS,
                                      Decoders::APRS, Decoders::ACARS, Decoders::VDL2, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
-                                     Decoders::ANALISE};
+                                     Decoders::OLIVIA, Decoders::STANAG, Decoders::BPSK, Decoders::SATELITES, Decoders::ANALISE};
         static_assert(sizeof kOrdem / sizeof kOrdem[0] == Decoders::N_TIPOS, "faltou um decodificador no menu");
         for (int i : kOrdem)
             if (ImGui::Selectable(Decoders::nome((Decoders::Tipo)i), decTipo_ == i)) escolherDecoder(i, true);
@@ -4292,7 +4490,7 @@ void Ui::janelaDecoders()
         std::string pasta = pastaDoExe() + "\\Decodificados";
         CreateDirectoryA(pasta.c_str(), nullptr);
         SYSTEMTIME st; GetLocalTime(&st);
-        static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4"};
+         static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4", "SAT", "OLIVIA", "STAN", "PSK"};
         char nome[96];
         std::snprintf(nome, sizeof nome, "\\RXSDR_%s_%04d%02d%02d_%02d%02d%02d.txt",
                       decTipo_ > 0 && decTipo_ < Decoders::N_TIPOS ? kTag[decTipo_] : "DEC",
@@ -4306,7 +4504,7 @@ void Ui::janelaDecoders()
 
     // --- ajustes de cada um ---
     const float wCombo = 330 * s_;
-    auto linhaCanal = [&](auto& lista, int& sel, bool aplicaFsk) {
+    auto linhaCanal = [&](auto& lista, int& sel, bool aplicaFsk, bool marcaFreq = true) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(T("Canal"));
         ImGui::SameLine();
@@ -4325,6 +4523,8 @@ void Ui::janelaDecoders()
             const bool centroFsk = decTipo_ == Decoders::SITORB || decTipo_ == Decoders::DSC;
             const bool centroPactor = decTipo_ == Decoders::PACTOR;   // tons em 1400/1600 Hz
             sintonizar(c.meio || centroPactor ? c.hz - 1500 : centroFsk ? c.hz - 1700 : c.hz, false);
+            // o radio foi para outra frequencia: ao fechar a janela ele volta
+            if (marcaFreq) decMudouFreq_ = true;
             escolherDecoder(decTipo_, false);
         }
     };
@@ -4380,6 +4580,121 @@ void Ui::janelaDecoders()
         ImGui::TextDisabled(T("PACTOR-I (100 ou 200 baud, shift 200 Hz) em USB. O tom, a velocidade e a polaridade sao achados sozinhos;"));
         ImGui::TextDisabled(T("cada pacote e conferido pelo CRC - texto so aparece quando o pacote chega inteiro."));
         break;
+    case Decoders::OLIVIA: {
+        const int antes = decCanalOlivia_;
+        linhaCanal(kCanaisOlivia, decCanalOlivia_, false, true);
+        if (decCanalOlivia_ != antes && decCanalOlivia_ >= 0) {
+            const CanalDec& c = kCanaisOlivia[decCanalOlivia_];
+            r_.decoders().olivia().setModo(c.tons, c.olBanda);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(T("USB - o conjunto de tons e centrado em 1500 Hz acima do dial"));
+        ImGui::TextDisabled(T("As frequencias sao as de chamada do site oliviadigitalmode.org. O centro do sinal e 1500 Hz"));
+        ImGui::TextDisabled(T("acima do radio: por isso o VFO fica 1500 Hz abaixo do valor da lista. O texto decodificado"));
+        ImGui::TextDisabled(T("aparece na caixa de baixo. O desvio (ate 125 Hz para cada lado) e o instante dos simbolos sao achados sozinhos."));
+        const auto eo = r_.decoders().olivia().estado();
+        if (eo.ok) {
+            if (eo.travado) ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("decodificando: %d tons (%.0f-%.0f Hz)  |  %d bloco(s)"),
+                                                eo.nTons, eo.tomBaixo, eo.tomAlto, eo.blocos);
+            else ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("sinal: %d tons (%.0f-%.0f Hz)  |  %.0f dB"),
+                                    eo.nTons, eo.tomBaixo, eo.tomAlto, eo.nivelDb);
+        } else ImGui::TextDisabled("%s", eo.texto.c_str());
+        break;
+    }
+    case Decoders::STANAG: {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T("Frequência"));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(wCombo);
+        if (comboStanag("##stanfreq", decCanalStanag_) && decCanalStanag_ >= 0) {
+            // o valor publicado e o CENTRO do sinal de 1800 Hz: igual ao
+            // OLIVIA/SITOR, o VFO fica 1800 Hz abaixo (o radio em USB)
+            sintonizar(kStanagFreqs[decCanalStanag_].khz - 1800u, false);
+            decMudouFreq_ = true;
+            escolherDecoder(decTipo_, false);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(T("USB - o centro do sinal fica em 1800 Hz acima do dial"));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T("Velocidade")); ImGui::SameLine();
+        ImGui::SetNextItemWidth(110 * s_);
+        static const int kStanagVels[] = {75, 150, 300, 600, 1200};
+        const char* vels[] = {T("75 bps"), T("150 bps"), T("300 bps"), T("600 bps"), T("1200 bps")};
+        int atual = 3;
+        for (int i = 0; i < 5; ++i)
+            if (kStanagVels[i] == decAj_.stanagVel) atual = i;
+        if (ImGui::BeginCombo("##stanvel", vels[atual])) {
+            for (int i = 0; i < 5; ++i)
+                if (ImGui::Selectable(vels[i], i == atual) && i != atual) {
+                    decAj_.stanagVel = kStanagVels[i];
+                    escolherDecoder(decTipo_, false);
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Checkbox(T("Entrelaçador longo"), &decAj_.stanagLongo))
+            escolherDecoder(decTipo_, false);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(T("O longo (j=12/24) e o das frotas; o primeiro texto demora ~10 s.\nO curto (j=1/2) responde em ~1 s, porem quase ninguem transmite nele agora."));
+        ImGui::TextDisabled(T("Escolha a frequência: o VFO vai 1800 Hz abaixo dela e o rádio fica em USB com 3 kHz."));
+        ImGui::TextDisabled(T("Com o entrelacador longo o texto comeca a sair depois de uns 10 segundos de sinal."));
+        const auto es = r_.decoders().stanag().estado();
+        if (es.ok)
+            ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("SINCRONIZADO: SNR %.1f dB  |  desvio %+.1f Hz  |  %d quadros  |  %d bits de dados"),
+                               es.snrDb, es.desvioHz, es.quadros, es.bits);
+        else
+            ImGui::TextDisabled(T("procurando a sincronia dos quadros (SNR baixo ou sinal fora de 1800 Hz)..."));
+        break;
+    }
+    case Decoders::BPSK: {
+        // plano de banda do PSK de radioamador (o sinal fica em 1800 Hz acima
+        // do dial; por isso o VFO vai para o valor menos 1800)
+        static const int kBpskKhz[] = { 3570, 7070, 10142, 14070, 18100, 21070, 24920, 28312 };
+        static const char* kRotulos[] = { "3570 kHz (80 m)", "7070 kHz (40 m)",  "10142 kHz (30 m)", "14070 kHz (20 m)",
+                                          "18100 kHz (16 m)", "21070 kHz (15 m)", "24920 kHz (12 m)", "28312 kHz (10 m)" };
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T("Frequência"));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(wCombo);
+        const char* prevF = decCanalBpsk_ >= 0 && decCanalBpsk_ < 8 ? kRotulos[decCanalBpsk_] : T("- escolha para sintonizar -");
+        if (ImGui::BeginCombo("##bpskfreq", prevF, ImGuiComboFlags_HeightLarge)) {
+            bool mudouF = false;
+            for (int i = 0; i < 8; ++i) {
+                ImGui::PushID(i);
+                if (ImGui::Selectable(kRotulos[i], decCanalBpsk_ == i)) { decCanalBpsk_ = i; mudouF = true; }
+                ImGui::PopID();
+            }
+            if (mudouF) ImGui::SetScrollHereY(0.4f);
+            ImGui::EndCombo();
+            if (mudouF) {
+                sintonizar(kBpskKhz[decCanalBpsk_] * 1000u - 1800u, false);
+                decMudouFreq_ = true;
+                escolherDecoder(decTipo_, false);
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(T("USB - o sinal fica em 1800 Hz acima do dial"));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T("Modo")); ImGui::SameLine();
+        ImGui::SetNextItemWidth(wCombo);
+        if (ImGui::BeginCombo("##bpskmodo", BpskCore::nomeModo(decAj_.bpskModo))) {
+            for (int i = 0; i < BpskCore::nModos(); ++i)
+                if (ImGui::Selectable(BpskCore::nomeModo(i), decAj_.bpskModo == i) && decAj_.bpskModo != i) {
+                    decAj_.bpskModo = i;
+                    escolherDecoder(decTipo_, false);
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled(T("QPSK31/63/125 e BPSK63F/125F usam correcao FEC (Viterbi, sem Reed-Solomon)."));
+        ImGui::TextDisabled(T("O VFO fica 1800 Hz abaixo do valor: e o mesmo esquema do STANAG. O texto sai na caixa de baixo."));
+        const auto eb = r_.decoders().bpsk().estado();
+        if (eb.ok)
+            ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("recebendo %s: nivel %.1f dB  |  desvio %+.1f Hz  |  qualidade %.0f  |  %ld caracteres"),
+                               BpskCore::nomeModo(decAj_.bpskModo), eb.nivelDb, eb.desvioHz, eb.metrica, eb.caracteres);
+        else
+            ImGui::TextDisabled(T("procurando um sinal PSK em 1800 Hz (ligue o sinal na banda e escolha o modo certo)..."));
+        break;
+    }
     case Decoders::CW: {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(T("Tom (Hz, 0 = medir sozinho)")); ImGui::SameLine();
@@ -4800,6 +5115,8 @@ void Ui::janelaDecoders()
     case Decoders::WEFAX:
         painelWefax();
         break;
+    case Decoders::SATELITES:
+        break;               // o painel vem depois (painelSatelites)
     case Decoders::ANALISE: {
         const float p = d.progressoAnalise();
         ImGui::ProgressBar(p, ImVec2(260 * s_, 0), p >= 1 ? T("pronta") : nullptr);
@@ -4834,6 +5151,12 @@ void Ui::janelaDecoders()
     if (ft8Msgs_.size() > 5000) ft8Msgs_.erase(ft8Msgs_.begin(), ft8Msgs_.begin() + (ft8Msgs_.size() - 5000));
     if (decTipo_ == Decoders::FT8 || decTipo_ == Decoders::FT4) {
         tabelaFt8(chegouFt8);    // o texto continua em decTexto_ (Copiar / Salvar .txt)
+        ImGui::End();
+        if (!aberta) { decAberta_ = false; escolherDecoder(Decoders::NENHUM, false); }
+        return;
+    }
+    if (decTipo_ == Decoders::SATELITES) {
+        painelSatelites();       // o texto (APRS) aparece dentro do painel
         ImGui::End();
         if (!aberta) { decAberta_ = false; escolherDecoder(Decoders::NENHUM, false); }
         return;

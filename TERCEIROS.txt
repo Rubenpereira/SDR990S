@@ -23,6 +23,14 @@ ft8_lib (decodificador FT8/FT4) MIT              https://github.com/kgoba/ft8_li
    (c) 2018 Karlis Goba. Inclui o kiss_fft (BSD). Duas mudancas pequenas para
    compilar no MSVC, descritas em third_party/ft8_lib/LEIA-ME.txt; a licenca
    completa esta no fim deste arquivo.
+libsgp4 (orbitas, decodificador Satelites)
+                               Apache 2.0        https://github.com/dnwrnr/sgp4
+   (c) 2013 Daniel Warner. Commit c6ebb90, sem mudancas (so o CsvTleLoader
+   ficou de fora). Licenca completa em third_party/sgp4/LICENSE.txt.
+Natural Earth 1:110m (contorno do mapa-mundi)
+                               dominio publico   https://www.naturalearthdata.com
+Elementos orbitais (satelites.tle)
+                               baixados da Celestrak (celestrak.org), dados publicos
 
 AO LADO DO SDR990S.exe
 ----------------------

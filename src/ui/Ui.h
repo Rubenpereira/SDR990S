@@ -17,6 +17,7 @@
 #include <d3d9.h>
 
 #include "../app/Radio.h"
+#include "../sat/Rastreador.h"
 
 struct ImFont;
 struct ImDrawList;
@@ -211,7 +212,7 @@ private:
     std::vector<DispositivoInfo> lista_;
     int cfgTipo_ = 0, cfgDisp_ = 0, cfgTaxa_ = 0, cfgQ_ = 2, cfgFft_ = 3;
     char cfgHost_[64] = "127.0.0.1"; int cfgPorta_ = 1234;
-    bool cfgAgc_ = false, cfgBias_ = false; int cfgPpm_ = 0; float cfgGanho_ = 49.6f;
+    bool cfgAgc_ = false, cfgBias_ = false, cfgIq_ = false; int cfgPpm_ = 0; float cfgGanho_ = 49.6f;
     int cfgLna_ = 9, cfgIfGain_ = 40; bool cfgIfAgc_ = false;
     int cfgS9Hf_ = -94, cfgS9Vhf_ = -93;
     // ajustes ao vivo (valem na hora, sem Aplicar)
@@ -251,6 +252,10 @@ private:
     int  decSelPend_ = 0, decSelFeito_ = 0;
     int  decCol_ = 0, decLinhas_ = 0;
     int decCanalRtty_ = -1, decCanalSitor_ = -1, decCanalDsc_ = -1, decCanalAle_ = -1, decCanalPactor_ = -1;
+    int decCanalOlivia_ = -1;
+    int decCanalStanag_ = -1;
+    int decCanalBpsk_ = -1;
+    bool oliviaEncolher_ = false;    // a janela encolhe ao escolher o OLIVIA
 
     // FT8 / FT4
     void painelFt8();                 // bandas, relogio UTC, andamento do periodo
@@ -259,6 +264,30 @@ private:
     std::vector<Ft8Core::Mensagem> ft8Msgs_;
     bool ft8SoCq_ = false;
     char ft8Busca_[24] = {0};
+
+    // SATELITES (Satelites.cpp): rastreio, polar em cruz, mapa e sintonia
+    void painelSatelites();
+    void atualizarSatMin();           // o resumo da barra minimizada
+    void iniciarRastreador();
+    void iniciarSubSat();             // liga SSTV / APRS / so audio, conforme o satelite
+    void sintonizarSat(int idx);
+    void seguirDoppler(double agora);
+    const std::vector<SatInfo>& catSat() const;   // catalogo da categoria escolhida
+    std::unique_ptr<Rastreador> sat_;
+    int satFiltro_ = 0, satSel_ = -1, satSint_ = -1, satPassSel_ = 0, satElMin_ = 10, satDlVisto_ = 0;
+    int satCat_ = 0;                  // 0 = radioamador, 1 = meteorologicos
+    int satFiltroMet_ = 0;            // filtro da categoria de meteorologicos
+    int satSub_ = 0;                  // Decoders::Tipo que o satelite sintonizado usa
+    bool satDoppler_ = false, satQthDef_ = false;
+    bool decMin_ = false;             // a janela de decodificadores minimizada (a barra do rodape)
+    std::string satInfoMin_;          // o resumo da barra minimizada (satelite e os horarios)
+    float satLat_ = -22.9f, satLon_ = -43.2f, satAlt_ = 0;
+    char satLoc_[12] = {0};
+    double satBaseHz_ = 0, satUltDop_ = 0, satUltCalc_ = 0, satPassesT_ = 0, satTleArqT_ = 0;
+    uint64_t satUltVfo_ = 0;
+    std::vector<Passagem> satPasses_; int satPassesDe_ = -1;
+    std::vector<std::pair<float, float>> satTrilha_; double satTrilhaT_ = 0, satTrilhaT0_ = 0; int satTrilhaDe_ = -1;
+    size_t satTxtTam_ = 0;
 
     // SSTV
     void painelSstv();

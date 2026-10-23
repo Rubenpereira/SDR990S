@@ -34,9 +34,6 @@
 !/ABRIR.bat
 !/COMPILAR.bat
 !/GERAR_PACOTE.bat
-!/SUBIR_GITHUB.bat
-!/PUBLICAR_RELEASE.bat
-!/publicar_release.ps1
 
 # compilacao automatica no GitHub (e a assinatura SignPath)
 !/.github/
@@ -60,3 +57,9 @@
 Capturas/
 Gravacoes/
 Decodificados/
+
+# ---- 5) ferramentas do autor para publicar: NUNCA sobem -------------------
+# (fica no fim de proposito: estas linhas vencem qualquer "!" acima)
+/SUBIR_GITHUB.bat
+/PUBLICAR_RELEASE.bat
+/publicar_release.ps1

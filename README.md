@@ -23,7 +23,7 @@ Baixe o `.zip` em **[Releases](https://github.com/Rubenpereira/SDR990S/releases)
 - **Memórias:** canais de memória e QUICK MEMO.
 - **Gravação:** REC, STOP e PLAY.
 - **Outros:** VOICE (fala a frequência), TIMER, XVTR (upconverter) e captura da tela (F12).
-- **Decodificadores:** FT8 e FT4 (lista igual à do WSJT-X, com SNR, DT e frequência), CW, RTTY, SITOR-B/NAVTEX, DSC, ALE, PACTOR, DMR/P25/NXDN/dPMR/YSF/D-STAR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, DRM, SSTV, WEFAX e analisador de sinal.
+- **Decodificadores:** FT8 e FT4 (lista igual à do WSJT-X, com SNR, DT e frequência), CW, RTTY, SITOR-B/NAVTEX, DSC, ALE, PACTOR, PSK (BPSK31/63/125/250, QPSK31/63/125, BPSK63F e BPSK125F), DMR/P25/NXDN/dPMR/YSF/D-STAR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, DRM, SSTV, WEFAX e analisador de sinal.
 
 O guia completo dos botões está no [LEIA-ME.txt](LEIA-ME.txt).
 

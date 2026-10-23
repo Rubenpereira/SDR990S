@@ -28,6 +28,9 @@
 #include "../decoders/Ft8Core.h"
 #include "../decoders/SstvCore.h"
 #include "../decoders/WefaxCore.h"
+#include "../decoders/OliviaCore.h"
+#include "../decoders/StanagCore.h"
+#include "../decoders/BpskCore.h"
 
 namespace masdr {
 
@@ -41,7 +44,7 @@ class PactorCore;
 
 class Decoders {
 public:
-    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, N_TIPOS };
+    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, SATELITES, OLIVIA, STANAG, BPSK, N_TIPOS };
 
     struct Ajustes {
         float rttyBaud = 45.45f, rttyShift = 170.f;
@@ -65,6 +68,9 @@ public:
         double   vdl2CentroHz = 0;
         uint32_t vdl2Taxa = 0;
         bool  drmInverter = false;        // espectro invertido (I/Q trocados)
+        int   stanagVel = 600;            // 75, 150, 300, 600 ou 1200 bps (Anexo A)
+        bool  stanagLongo = true;         // o entrelacador longo (j=12/24) ou curto
+        int   bpskModo = 0;               // indice em BpskCore::nomeModo (BPSK31...)
     };
 
     Decoders();
@@ -120,6 +126,9 @@ public:
     Drm& drm() { return drm_; }
     SstvCore& sstv() { return sstv_; }
     WefaxCore& wefax() { return wefax_; }
+    OliviaCore& olivia() { return olivia_; }
+    StanagCore& stanag() { return stanag_; }
+    BpskCore& bpsk() { return bpsk_; }
     // WEFAX: igual ao SSTV, o PNG e salvo aqui (pasta WEFAX); a tela pega para o historico
     struct ImagemWefax { std::vector<uint8_t> cinza; int w = 0, h = 0, lpm = 120, ioc = 576; std::string arquivo, rotulo; };
     bool pegarImagemWefax(ImagemWefax& im);
@@ -178,6 +187,9 @@ private:
     Drm drm_;
     SstvCore sstv_;      // SSTV: imagens (o audio vai direto, na taxa do radio)
     WefaxCore wefax_;    // WEFAX: fax meteorologico (idem)
+    OliviaCore olivia_;  // OLIVIA: decodifica o texto (MFSK + FEC de Walsh)
+    StanagCore stanag_;  // STANAG 4285: 75..1200 bps, portadora unica em 1800 Hz
+    BpskCore bpsk_;      // PSK31/63/125/250, QPSK e os FEC "R" (BPSK63F/125F)
     std::unique_ptr<CwCore> cw_;
     std::unique_ptr<RttyCore> rtty_;
     std::unique_ptr<SitorBCore> sitor_;
