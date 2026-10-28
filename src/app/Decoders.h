@@ -31,6 +31,9 @@
 #include "../decoders/OliviaCore.h"
 #include "../decoders/StanagCore.h"
 #include "../decoders/BpskCore.h"
+#include "../decoders/AdsbCore.h"
+#include "../decoders/AdsbEmpresas.h"
+#include "AdsbInternet.h"
 
 namespace masdr {
 
@@ -44,7 +47,7 @@ class PactorCore;
 
 class Decoders {
 public:
-    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, SATELITES, OLIVIA, STANAG, BPSK, N_TIPOS };
+    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, SATELITES, OLIVIA, STANAG, BPSK, ADSB, N_TIPOS };
 
     struct Ajustes {
         float rttyBaud = 45.45f, rttyShift = 170.f;
@@ -71,6 +74,7 @@ public:
         int   stanagVel = 600;            // 75, 150, 300, 600 ou 1200 bps (Anexo A)
         bool  stanagLongo = true;         // o entrelacador longo (j=12/24) ou curto
         int   bpskModo = 0;               // indice em BpskCore::nomeModo (BPSK31...)
+        bool  adsbInternet = true;        // ADSB: buscar prefixo/modelo no hexdb.io
     };
 
     Decoders();
@@ -99,6 +103,12 @@ public:
         const Tipo t = tipo_.load();
         return (t == DMR && dsd_.rodando()) || (t == TETRA && tetra_.rodando()) || (t == DRM && drm_.rodando() && drm_.audioBom());   // DRM: so com audio bom; antes, o som do radio
     }
+    // ADSB, ACARS e VDL2 decodificam o IQ: o som do radio (estalos e chiado
+    // do AM) nao serve para nada, entao fica mudo enquanto um deles roda
+    bool silenciaAudio() const {
+        const Tipo t = tipo_.load();
+        return t == ADSB || t == ACARS || t == VDL2;
+    }
     void puxarVoz(int16_t* out, size_t n, uint32_t sps) {
         if (tipo_.load() == TETRA) { tetra_.puxarVoz(out, n, sps); return; }
         if (tipo_.load() == DRM) { drm_.puxarAudio(out, n, sps); return; }
@@ -117,12 +127,20 @@ public:
         if (t == HFDL) hfdl_.alimentarIQCru(iq, n, sps, centro);
         else if (t == ACARS) acars_.alimentarIQCru(iq, n, sps, centro);
         else if (t == VDL2) vdl2_.alimentarIQCru(iq, n, sps, centro);
+        else if (t == ADSB) {
+            // ADS-B: o IQ inteiro (1090 MHz no centro, 2,4 Msps)
+            adsb_.alimentarIQ(iq, n, sps);
+            const std::string s = adsb_.pegarTexto();
+            if (!s.empty()) escrever(s);
+        }
     }
     Hfdl& hfdl() { return hfdl_; }
     Ais& ais() { return ais_; }
     Aprs& aprs() { return aprs_; }
     Acars& acars() { return acars_; }
     Vdl2& vdl2() { return vdl2_; }
+    AdsbCore& adsb() { return adsb_; }
+    std::string adsbInternet() const { return hexdb_.situacao(); }
     Drm& drm() { return drm_; }
     SstvCore& sstv() { return sstv_; }
     WefaxCore& wefax() { return wefax_; }
@@ -190,6 +208,8 @@ private:
     OliviaCore olivia_;  // OLIVIA: decodifica o texto (MFSK + FEC de Walsh)
     StanagCore stanag_;  // STANAG 4285: 75..1200 bps, portadora unica em 1800 Hz
     BpskCore bpsk_;      // PSK31/63/125/250, QPSK e os FEC "R" (BPSK63F/125F)
+    AdsbCore adsb_;      // ADS-B / Modo S (1090 MHz), direto do IQ
+    ConsultaHexdb hexdb_; // ADSB: prefixo e modelo de cada aviao (hexdb.io)
     std::unique_ptr<CwCore> cw_;
     std::unique_ptr<RttyCore> rtty_;
     std::unique_ptr<SitorBCore> sitor_;

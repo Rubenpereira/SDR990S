@@ -218,7 +218,7 @@ bool Radio::usarQ(uint64_t hz) const
 uint64_t Radio::centroSemDc(uint64_t vfo)
 {
     const auto td = dec_.tipo();
-    if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2) return vfo;
+    if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB) return vfo;
     if (Config::instance().sampleRate() < 200000) return vfo;
     const std::string m = modo();
     int64_t d;
@@ -406,6 +406,12 @@ void Radio::aoAudio(const std::vector<int16_t>& pcm, uint32_t sps)
         std::vector<int16_t> voz(pcm.size());
         dec_.puxarVoz(voz.data(), voz.size(), sps);
         som_.empurrar(voz.data(), voz.size(), sps);
+        return;
+    }
+    if (dec_.silenciaAudio()) {
+        // ADSB / ACARS / VDL2: silencio do mesmo tamanho (o relogio do som segue)
+        const std::vector<int16_t> mudo(pcm.size(), 0);
+        som_.empurrar(mudo.data(), mudo.size(), sps);
         return;
     }
     som_.empurrar(pcm.data(), pcm.size(), sps);

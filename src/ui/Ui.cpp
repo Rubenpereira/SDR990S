@@ -308,7 +308,7 @@ void Ui::salvarEstado()
 // ===========================================================================
 // Teste remoto (igual ao captura.pedido): um arquivo teste.pedido ao lado do
 // exe, uma ordem por linha - "ligar", "freq 14074000", "modo USB",
-// "decoder FT8" (ou FT4 / NENHUM). O arquivo e apagado depois de lido.
+// "decoder FT8" (ou FT4 / SAT / ADSB / NENHUM). O arquivo e apagado depois de lido.
 void Ui::lerPedidoTeste()
 {
     static double proximo = 0;
@@ -337,7 +337,8 @@ void Ui::lerPedidoTeste()
         else if (l == "sub") ativar(1);
         else if (l.rfind("decoder ", 0) == 0) {
             const std::string n = l.substr(8);
-            const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : n == "SAT" ? Decoders::SATELITES : Decoders::NENHUM;
+            const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : n == "SAT" ? Decoders::SATELITES :
+                          n == "ADSB" ? Decoders::ADSB : Decoders::NENHUM;
             decAberta_ = t != Decoders::NENHUM;
             escolherDecoder(t, true);
         }
@@ -1682,7 +1683,7 @@ void Ui::sintonizar(uint64_t hz, bool arredondar)
         //   sem zoom : o centro vai 20 kHz para o lado (o DC fica longe do canal)
         muteAte_ = agoraS() + 0.25;
         const auto td = r_.decoders().tipo();
-        const bool centroFixo = td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2;
+        const bool centroFixo = td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB;
         if (zoom_ > 0) centrarParaZoom(true);
         else if (!centroFixo && r_.modo() != "WFM" && r_.taxa() >= 200000) {
             const std::string m = r_.modo();
@@ -1709,7 +1710,7 @@ void Ui::centrarParaZoom(bool forcar)
     if (zoom_ <= 0 || !r_.temDispositivo()) return;
     {   // HFDL, ACARS e VDL2 precisam do centro que combinaram com o programa
         const auto td = r_.decoders().tipo();
-        if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2) return;
+        if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB) return;
     }
     const double vis = r_.taxa() / (1.0 + zoom_);
     const std::string m = r_.modo();
@@ -3564,6 +3565,17 @@ void Ui::sintonizarDecoder(int t)
         decMudouFreq_ = true;
         if (ac) { decAj_.acarsCanais = canais; decAj_.acarsCentroHz = (double)r_.centro(); decAj_.acarsTaxa = r_.taxa(); }
         else    { decAj_.vdl2Canais = canais;  decAj_.vdl2CentroHz = (double)r_.centro();  decAj_.vdl2Taxa = r_.taxa(); }
+    } else if (t == Decoders::ADSB) {
+        // ADS-B: 1090 MHz no centro do dongle, 2,4 Msps (a 2,0 Msps os pulsos
+        // de 0,5 us perdem a forma e metade das mensagens se perde)
+        auto& c = Config::instance();
+        const unsigned taxa = 2400000u;
+        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_.aplicarConfig(); decMudouTaxa_ = true; }
+        r_.centralizar(1090000000ull);
+        mudarModo("AM");
+        sintonizar(1090000000ull, false);
+        decMudouFreq_ = true;
+        sstvAumentar_ = true;     // a janela cresce para caber a tabela
     } else if (t == Decoders::AIS) {
         // canais 87B (161,975) e 88B (162,025): o VFO fica no meio dos dois
         mudarModo("NFM");
@@ -3599,8 +3611,8 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
         return;
     }
     const bool externoComSintonia = t == Decoders::HFDL || t == Decoders::AIS || t == Decoders::APRS ||
-                                    t == Decoders::ACARS || t == Decoders::VDL2;
-    const bool centroFixo = t == Decoders::HFDL || t == Decoders::ACARS || t == Decoders::VDL2;
+                                    t == Decoders::ACARS || t == Decoders::VDL2 || t == Decoders::ADSB;
+    const bool centroFixo = t == Decoders::HFDL || t == Decoders::ACARS || t == Decoders::VDL2 || t == Decoders::ADSB;
     if ((sintonizarModo || externoComSintonia) && !decModoGuardado_) {   // para devolver o radio como estava
         decModoAntes_ = r_.modo(); decBwAntes_ = r_.banda(); decModoGuardado_ = true;
         decFreqAntes_ = r_.vfo(); decTaxaAntes_ = Config::instance().sampleRate();
@@ -3703,14 +3715,119 @@ void Ui::tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs)
         ImGui::TableSetColumnIndex(4); ImGui::Text("%d", a.msgs);
         ImGui::TableSetColumnIndex(5);
         const double s = ta - a.visto;
-        if (s < 120) ImGui::Text("%.0f s", s); else ImGui::Text("%.0f min", s / 60);
+        if (s < 120) ImGui::Text("%.0f s", s); else if (s < 7200) ImGui::Text("%.0f min", s / 60); else ImGui::Text("%.1f h", s / 3600);
+        ImGui::PopID();
+    }
+    ImGui::EndTable();
+}
+// Tabela do ADSB: os avioes do ADS-B / Modo S, com os links (voo e prefixo
+// no FlightAware, igual ao ACARS; o codigo ICAO no ADS-B Exchange, que mostra
+// o aviao no mapa; a posicao no Google Maps)
+void Ui::tabelaAdsb(const std::vector<AdsbCore::Aviao>& avs)
+{
+    if (avs.empty()) {
+        ImGui::TextDisabled(T("Nenhum avião ainda. Antena para 1090 MHz (polarização vertical) e ganho alto ajudam."));
+        return;
+    }
+    const float alt = std::max(180.f * s_, ImGui::GetContentRegionAvail().y * 0.5f);
+    if (!ImGui::BeginTable("##adsb", 14, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                         ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit, ImVec2(0, alt)))
+        return;
+    ImGui::TableSetupScrollFreeze(1, 1);
+    for (const char* c : {T("Voo"), T("Prefixo"), T("Empresa"), "ICAO", T("Modelo"), T("País"), T("Altitude"), T("Veloc."), T("Rumo"),
+                          T("Subida"), "Squawk", T("Posição"), "Msgs", T("Visto")})
+        ImGui::TableSetupColumn(c);
+    ImGui::TableHeadersRow();
+    auto abrir = [](const std::string& url) { ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL); };
+    int n = 0;
+    for (const auto& a : avs) {
+        ImGui::PushID(n++);
+        ImGui::TableNextRow();
+        if (!a.ativo) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.55f);
+        AeronaveHfdl fa;                       // os mesmos enderecos do FlightAware do ACARS
+        fa.voo = a.voo; fa.prefixo = a.prefixo; fa.hex = a.hex;
+        ImGui::TableSetColumnIndex(0);
+        if (a.voo.empty()) ImGui::TextUnformatted("-");
+        else {
+            if (ImGui::TextLink(a.voo.c_str())) abrir(fa.urlVoo());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o voo no FlightAware\n%s"), fa.urlVoo().c_str());
+        }
+        ImGui::TableSetColumnIndex(1);
+        if (a.prefixo.empty()) ImGui::TextUnformatted("-");
+        else {
+            if (ImGui::TextLink(a.prefixo.c_str())) abrir(fa.urlPrefixo());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o avião no FlightAware\n%s"), fa.urlPrefixo().c_str());
+        }
+        ImGui::TableSetColumnIndex(2);
+        {
+            // a companhia (pelo voo ou pelo cadastro) ou militar, governo, particular...
+            ImVec4 cor(0.92f, 0.92f, 0.92f, 1);
+            if (a.classe == "militar") cor = ImVec4(1.0f, 0.62f, 0.25f, 1);
+            else if (a.classe == "governo") cor = ImVec4(0.45f, 0.80f, 1.0f, 1);
+            else if (a.classe == "particular") cor = ImVec4(0.72f, 0.72f, 0.72f, 1);
+            else if (a.classe == "carga") cor = ImVec4(0.95f, 0.85f, 0.45f, 1);
+            else if (a.classe == "executiva" || a.classe == "taxi") cor = ImVec4(0.75f, 0.95f, 0.65f, 1);
+            if (a.empresa.empty()) ImGui::TextUnformatted("-");
+            else ImGui::TextColored(cor, "%s", a.empresa.c_str());
+            const std::string cat = nomeCategoriaAdsb(a.categoria);
+            if (ImGui::IsItemHovered() && (!cat.empty() || !a.operadorIcao.empty())) {
+                std::string dica;
+                if (!cat.empty()) dica += std::string(T("Categoria (ADS-B): ")) + cat;
+                if (!a.operadorIcao.empty()) dica += std::string(dica.empty() ? "" : "\n") + T("Operador (ICAO): ") + a.operadorIcao;
+                ImGui::SetTooltip("%s", dica.c_str());
+            }
+        }
+        ImGui::TableSetColumnIndex(3);
+        {
+            std::string h = a.hex;
+            for (auto& c : h) c = (char)std::tolower((unsigned char)c);
+            const std::string url = "https://globe.adsbexchange.com/?icao=" + h;
+            if (ImGui::TextLink(a.hex.c_str())) abrir(url);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Ver o avião no mapa do ADS-B Exchange\n%s"), url.c_str());
+        }
+        ImGui::TableSetColumnIndex(4);
+        ImGui::TextUnformatted(a.tipo.empty() ? "-" : a.tipo.c_str());
+        // o dono so aparece quando e empresa / orgao (o de aviao particular nao)
+        if (!a.operador.empty() && a.classe != "particular" && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", a.operador.c_str());
+        ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(a.pais.empty() ? "-" : a.pais.c_str());
+        ImGui::TableSetColumnIndex(6);
+        if (a.noChao) ImGui::TextUnformatted(T("no chão"));
+        else if (a.altitude != AdsbCore::kSemValor) ImGui::Text("%d ft", a.altitude);
+        else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(7);
+        if (a.velocidade >= 0) ImGui::Text("%.0f kt", a.velocidade); else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(8);
+        if (a.rumo >= 0) ImGui::Text("%03.0f\xC2\xB0", a.rumo); else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(9);
+        if (a.vertical != AdsbCore::kSemValor) ImGui::Text("%+d", a.vertical); else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(10);
+        if (a.squawk >= 0) {
+            const bool emerg = a.squawk == 7500 || a.squawk == 7600 || a.squawk == 7700;
+            if (emerg) ImGui::TextColored(ImVec4(1, 0.25f, 0.25f, 1), "%04d", a.squawk);
+            else ImGui::Text("%04d", a.squawk);
+        } else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(11);
+        if (a.lat <= 90) {
+            char p[48], url[128];
+            std::snprintf(p, sizeof p, "%.4f, %.4f", a.lat, a.lon);
+            std::snprintf(url, sizeof url, "https://www.google.com/maps/search/?api=1&query=%.5f,%.5f", a.lat, a.lon);
+            if (ImGui::TextLink(p)) abrir(url);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir a posição no Google Maps"));
+        } else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(12); ImGui::Text("%d", a.msgs);
+        if (!a.ativo) ImGui::PopStyleVar();
+        ImGui::TableSetColumnIndex(13);
+        if (a.idade < 120) ImGui::Text("%.0f s", a.idade);
+        else if (a.idade < 7200) ImGui::Text("%.0f min", a.idade / 60);
+        else ImGui::Text("%.1f h", a.idade / 3600);
         ImGui::PopID();
     }
     ImGui::EndTable();
 }
 
 // Texto novo na janela: quebra as linhas compridas (o SITOR-B e o RTTY
-// mandam texto corrido) e guarda no maximo ~60 kB.
+// mandam texto corrido). E um registro: so o botao Limpar apaga; para nao
+// pesar, acima de ~1 MB (umas 15 mil linhas) sai o comeco.
 void Ui::anexarDecTexto(const std::string& novo)
 {
     const int kColunas = 100;
@@ -3725,12 +3842,12 @@ void Ui::anexarDecTexto(const std::string& novo)
         decTexto_ += c;
         ++decCol_;
     }
-    if (decTexto_.size() > 60000) {
-        size_t corte = decTexto_.find('\n', decTexto_.size() - 50000);
-        decTexto_.erase(0, corte == std::string::npos ? decTexto_.size() - 50000 : corte + 1);
+    if (decTexto_.size() > 1000000) {
+        size_t corte = decTexto_.find('\n', decTexto_.size() - 900000);
+        decTexto_.erase(0, corte == std::string::npos ? decTexto_.size() - 900000 : corte + 1);
+        decLinhas_ = 0;
+        for (char c : decTexto_) if (c == '\n') ++decLinhas_;
     }
-    decLinhas_ = 0;
-    for (char c : decTexto_) if (c == '\n') ++decLinhas_;
 }
 
 // Fechou a janela (ou escolheu "Nenhum"): o radio volta ao modo e a largura
@@ -4460,7 +4577,7 @@ void Ui::janelaDecoders()
     if (ImGui::BeginCombo("##dectipo", Decoders::nome((Decoders::Tipo)decTipo_), ImGuiComboFlags_HeightLarge)) {
         static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::FT8, Decoders::FT4, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
                                      Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::HFDL, Decoders::AIS,
-                                     Decoders::APRS, Decoders::ACARS, Decoders::VDL2, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
+                                     Decoders::APRS, Decoders::ACARS, Decoders::VDL2, Decoders::ADSB, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
                                      Decoders::OLIVIA, Decoders::STANAG, Decoders::BPSK, Decoders::SATELITES, Decoders::ANALISE};
         static_assert(sizeof kOrdem / sizeof kOrdem[0] == Decoders::N_TIPOS, "faltou um decodificador no menu");
         for (int i : kOrdem)
@@ -4480,7 +4597,11 @@ void Ui::janelaDecoders()
     ImGui::SameLine();
     if (ImGui::Button(T("Reiniciar")) && decTipo_ != Decoders::NENHUM) escolherDecoder(decTipo_, false);
     ImGui::SameLine();
-    if (ImGui::Button(T("Limpar"))) { decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear(); }
+    if (ImGui::Button(T("Limpar"))) {
+        decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear();
+        // as tabelas de avioes sao registro: so o Limpar apaga
+        d.adsb().limparLista(); d.acars().limparLista(); d.vdl2().limparLista(); d.hfdl().limparLista();
+    }
     ImGui::SameLine();
     if (ImGui::Button(T("Selecionar tudo"))) decSelTudo_ = true;
     ImGui::SameLine();
@@ -4490,7 +4611,7 @@ void Ui::janelaDecoders()
         std::string pasta = pastaDoExe() + "\\Decodificados";
         CreateDirectoryA(pasta.c_str(), nullptr);
         SYSTEMTIME st; GetLocalTime(&st);
-         static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4", "SAT", "OLIVIA", "STAN", "PSK"};
+         static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4", "SAT", "OLIVIA", "STAN", "PSK", "ADSB"};
         char nome[96];
         std::snprintf(nome, sizeof nome, "\\RXSDR_%s_%04d%02d%02d_%02d%02d%02d.txt",
                       decTipo_ > 0 && decTipo_ < Decoders::N_TIPOS ? kTag[decTipo_] : "DEC",
@@ -4845,7 +4966,7 @@ void Ui::janelaDecoders()
                 ImGui::TableSetColumnIndex(5); ImGui::Text("%d", a.msgs);
                 ImGui::TableSetColumnIndex(6);
                 const double s = ta - a.visto;
-                if (s < 120) ImGui::Text("%.0f s", s); else ImGui::Text("%.0f min", s / 60);
+                if (s < 120) ImGui::Text("%.0f s", s); else if (s < 7200) ImGui::Text("%.0f min", s / 60); else ImGui::Text("%.1f h", s / 3600);
                 ImGui::PopID();
             }
             ImGui::EndTable();
@@ -4893,7 +5014,7 @@ void Ui::janelaDecoders()
                 if (n.rumo >= 0) ImGui::Text("%.0f°", n.rumo); else ImGui::TextUnformatted("-");
                 ImGui::TableSetColumnIndex(6);
                 const double s = ta - n.visto;
-                if (s < 120) ImGui::Text("%.0f s", s); else ImGui::Text("%.0f min", s / 60);
+                if (s < 120) ImGui::Text("%.0f s", s); else if (s < 7200) ImGui::Text("%.0f min", s / 60); else ImGui::Text("%.1f h", s / 3600);
                 ImGui::PopID();
             }
             ImGui::EndTable();
@@ -5044,6 +5165,17 @@ void Ui::janelaDecoders()
         ImGui::TextDisabled(T("Não mexa na sintonia enquanto ouve. Voo e prefixo abrem no FlightAware."));
         tabelaAvioes("##avvdl2", d.vdl2().aeronaves());
         break;
+    case Decoders::ADSB: {
+        ImGui::TextDisabled(T("1090 MHz (ADS-B / Modo S). O dongle passa para 2,4 Msps com 1090 MHz no centro; não mexa na sintonia."));
+        ImGui::TextDisabled(T("Voo e prefixo abrem no FlightAware, o código ICAO no ADS-B Exchange e a posição no Google Maps."));
+        if (ImGui::Checkbox(T("Buscar prefixo e modelo na internet (hexdb.io)"), &decAj_.adsbInternet))
+            escolherDecoder(decTipo_, false);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(T("O ADS-B traz só o código ICAO do avião; a matrícula (PR-XXX, PP-XXX...) vem do hexdb.io.\nCada avião é consultado uma vez e fica guardado em adsb_prefixos.txt ao lado do programa.\nOs dos EUA (N...) são calculados direto do código, sem internet."));
+        if (decAj_.adsbInternet) { ImGui::SameLine(); ImGui::TextDisabled("(%s)", d.adsbInternet().c_str()); }
+        tabelaAdsb(d.adsb().avioes());
+        break;
+    }
     case Decoders::APRS: {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(T("Canal")); ImGui::SameLine();
@@ -5097,7 +5229,7 @@ void Ui::janelaDecoders()
                 ImGui::TableSetColumnIndex(3); ImGui::Text("%d", e.pacotes);
                 ImGui::TableSetColumnIndex(4);
                 const double s = ta - e.visto;
-                if (s < 120) ImGui::Text("%.0f s", s); else ImGui::Text("%.0f min", s / 60);
+                if (s < 120) ImGui::Text("%.0f s", s); else if (s < 7200) ImGui::Text("%.0f min", s / 60); else ImGui::Text("%.1f h", s / 3600);
                 ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(e.info.c_str());
                 ImGui::PopID();
             }

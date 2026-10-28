@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SDR990S VERSION 1.2.4 LANGUAGES C CXX)
+project(SDR990S VERSION 1.2.5 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 #  SDR-990S - receptor SDR com painel de radio (Windows 7 SP1 ate 11)
@@ -55,6 +55,9 @@ set(SOURCES
     src/decoders/OliviaCore.cpp
     src/decoders/StanagCore.cpp
     src/decoders/BpskCore.cpp
+    src/decoders/AdsbCore.cpp
+    src/decoders/AdsbEmpresas.cpp
+    src/app/AdsbInternet.cpp
     src/decoders/Ft8Core.cpp
     third_party/ft8_lib/ft8/constants.c
     third_party/ft8_lib/ft8/crc.c

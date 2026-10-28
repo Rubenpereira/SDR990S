@@ -72,6 +72,7 @@ const char* Decoders::nome(Tipo t)
     case OLIVIA: return "OLIVIA";
     case STANAG: return "STANAG 4285";
     case BPSK: return "PSK (BPSK/QPSK)";
+    case ADSB: return "ADSB (1090 MHz)";
     default: return T("Nenhum");
     }
 }
@@ -86,6 +87,7 @@ Decoders::~Decoders()
     dsd_.parar();
     tetra_.parar();
     hfdl_.parar(); ais_.parar(); aprs_.parar(); acars_.parar(); vdl2_.parar(); drm_.parar();
+    hexdb_.parar();
     {
         std::lock_guard<std::mutex> lk(filaMutex_);
         sair_ = true;
@@ -108,6 +110,7 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
     if (t != ACARS) acars_.parar();
     if (t != VDL2) vdl2_.parar();
     if (t != DRM) drm_.parar();
+    if (t != ADSB) hexdb_.parar();
     switch (t) {
     case CW: {
         CwCore::Params p;
@@ -234,6 +237,12 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
         escrever(T("[STANAG 4285] USB - sinal centrado em 1800 Hz acima do dial; o texto sai na caixa de baixo.\n"));
         break;
     }
+    case ADSB:
+        hexdb_.parar();
+        adsb_.limpar();
+        if (a.adsbInternet) hexdb_.iniciar(&adsb_);
+        escrever(T("[ADSB] 1090 MHz, 2,4 Msps - os avioes aparecem na tabela; voo, prefixo, ICAO e posicao abrem na internet.\n"));
+        break;
     case BPSK:
         bpsk_.setModo(a.bpskModo);
         escrever(T("[PSK] USB - sinal centrado em 1800 Hz acima do dial; o texto sai na caixa de baixo.\n"));
@@ -262,6 +271,7 @@ void Decoders::parar()
     dsd_.parar();
     tetra_.parar();
     hfdl_.parar(); ais_.parar(); aprs_.parar(); acars_.parar(); vdl2_.parar(); drm_.parar();
+    hexdb_.parar();
     if (tipo_.load() == SSTV) { sstv_.parar(); colherSstv(); }   // a imagem pela metade fica salva como esta
     if (tipo_.load() == WEFAX) { wefax_.parar(); colherWefax(); }
     std::lock_guard<std::mutex> lk(coreMutex_);
@@ -272,7 +282,7 @@ void Decoders::parar()
 void Decoders::empurrar(const int16_t* pcm, size_t n, uint32_t sps)
 {
     const Tipo tp = tipo_.load();
-    if (tp == NENHUM || tp == SATELITES || tp == TETRA || tp == HFDL || tp == AIS || tp == ACARS || tp == VDL2 || tp == DRM || !pcm || !n || !sps) return;
+    if (tp == NENHUM || tp == SATELITES || tp == TETRA || tp == HFDL || tp == AIS || tp == ACARS || tp == VDL2 || tp == ADSB || tp == DRM || !pcm || !n || !sps) return;
     {
         std::lock_guard<std::mutex> lk(filaMutex_);
         if (sps != filaSps_) { fila_.clear(); filaAmostras_ = 0; filaSps_ = sps; }
@@ -715,6 +725,12 @@ std::string Decoders::estado()
         else if (fora) std::snprintf(b, sizeof b, T("o radio saiu do centro combinado - clique Reiniciar  |  %d mensagens"), e.mensagens);
         else std::snprintf(b, sizeof b, T("%s ouvindo  |  %d mensagens"), prog, e.mensagens);
     }
+    else if (tipo_.load() == ADSB) {
+        const AdsbCore::Estado e = adsb_.estado();
+        if (!e.taxaOk && e.taxa) std::snprintf(b, sizeof b, T("ADSB precisa de 2,4 Msps (o radio esta em %.3f Msps) - clique Reiniciar"), e.taxa / 1e6);
+        else std::snprintf(b, sizeof b, T("ADSB ouvindo  |  %d avioes (%d com posicao)  |  %.0f msg/s  |  %lld mensagens"),
+                           e.avioes, e.comPosicao, e.msgsPorS, e.mensagens);
+    }
     else if (tipo_.load() == AIS) {
         const EstadoExterno e = ais_.estado();
         if (!e.rodando) std::snprintf(b, sizeof b, "%s", e.erro.empty() ? T("AIS-catcher parado") : e.erro.c_str());
@@ -790,6 +806,7 @@ bool Decoders::travado()
     if (tipo_.load() == TETRA) return tetra_.estado().travado;
     if (tipo_.load() == STANAG) return stanag_.estado().ok;
     if (tipo_.load() == BPSK) return bpsk_.estado().ok;
+    if (tipo_.load() == ADSB) return adsb_.estado().msgsPorS > 0;
     if (tipo_.load() == SSTV) return sstv_.status().estado == SstvCore::RECEBENDO;
     if (tipo_.load() == WEFAX) return wefax_.status().estado == WefaxCore::RECEBENDO;
     if (tipo_.load() == DRM) { const EstadoDrm e = drm_.estado(); return e.tempo == 0 && e.fac == 0; }

@@ -94,6 +94,7 @@ public:
     EstadoExterno estado();
     bool foraDaBanda() const { return fora_.load(); }
     std::vector<AeronaveHfdl> aeronaves();
+    void limparLista() { std::lock_guard<std::mutex> lk(m_); avioes_.clear(); }
     std::function<void(const std::string&)> aoTexto;
 private:
     void linha(const std::string& l);
@@ -197,6 +198,7 @@ public:
     EstadoExterno estado();
     bool foraDaBanda() const { return fora_.load(); }
     std::vector<AeronaveHfdl> aeronaves();
+    void limparLista() { std::lock_guard<std::mutex> lk(m_); avioes_.clear(); }
     std::function<void(const std::string&)> aoTexto;
 private:
     void linha(const std::string& l);
@@ -240,6 +242,7 @@ public:
     EstadoExterno estado();
     bool foraDaBanda() const { return fora_.load(); }
     std::vector<AeronaveHfdl> aeronaves();
+    void limparLista() { std::lock_guard<std::mutex> lk(m_); avioes_.clear(); }
     std::function<void(const std::string&)> aoTexto;
 private:
     void linha(const std::string& l);

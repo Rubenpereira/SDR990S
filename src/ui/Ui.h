@@ -81,6 +81,7 @@ private:
     int decHfdlBanda_ = 5, decAprsCanal_ = 0, decDrmSel_ = -1;
     void sintonizarDecoder(int tipo);
     void tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs);
+    void tabelaAdsb(const std::vector<AdsbCore::Aviao>& avs);
     // squelch automatico (clique no SQL)
     bool sqlMedindo_ = false;
     double sqlIni_ = 0, sqlUlt_ = 0;
