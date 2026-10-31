@@ -1262,13 +1262,21 @@ void Ui::telaRadar()
             ImVec2 a, b;
             if (recortar(p, P.xy(la, lo), C, Rr, a, b)) dl->AddLine(a, b, comAlfa(cor, 0.75f * aBlip), 1.3f * s);
         }
+        // o rumo na tela: o rumo do aviao + o angulo do norte NO LUGAR dele (na projecao azimutal o
+        // norte so e "para cima" no centro; a 2.000 km ou mais a diferenca ja e de varios graus)
+        double rumoTela = v.rumo;
+        if (v.rumo >= 0 && v.dist > 300) {
+            const ImVec2 qn = P.xy(std::min(89.9, v.pLat + 0.05), v.pLon) - p;
+            if (qn.x * qn.x + qn.y * qn.y > 1e-6f)
+                rumoTela = std::fmod(v.rumo + std::atan2((double)qn.x, (double)-qn.y) * 180.0 / 3.14159265358979 + 360.0, 360.0);
+        }
         if (aBlip > 0.01f) {
             dl->AddCircleFilled(p, 11 * s, comAlfa(cor, 0.13f * aBlip), 20);           // o brilho do eco
             if (v.net) {
                 // posicao da INTERNET: so o contorno (nao foi o seu receptor)
-                if (v.rumo >= 0) aviaoContorno(dl, p, 9.f * s, v.rumo, comAlfa(cor, aBlip), 1.5f * s);
+                if (v.rumo >= 0) aviaoContorno(dl, p, 9.f * s, rumoTela, comAlfa(cor, aBlip), 1.5f * s);
                 else dl->AddCircle(p, 5 * s, comAlfa(cor, aBlip), 12, 1.6f * s);
-            } else if (R.simbolo == 0 && v.rumo >= 0) aviao(dl, p, 8.5f * s, v.rumo, comAlfa(cor, aBlip));
+            } else if (R.simbolo == 0 && v.rumo >= 0) aviao(dl, p, 8.5f * s, rumoTela, comAlfa(cor, aBlip));
             else if (v.fonte != "ADS-B") {
                 const ImVec2 q[] = {p + ImVec2(0, -5 * s), p + ImVec2(5 * s, 0), p + ImVec2(0, 5 * s), p + ImVec2(-5 * s, 0)};
                 dl->AddConvexPolyFilled(q, 4, comAlfa(cor, aBlip));
@@ -1297,6 +1305,7 @@ void Ui::telaRadar()
             std::string l2 = textoAlt(v);
             if (v.vs != AdsbCore::kSemValor && std::abs(v.vs) >= 300) l2 += v.vs > 0 ? " \xE2\x96\xB2" : " \xE2\x96\xBC";
             if (v.vel >= 0) { char b[24]; std::snprintf(b, sizeof b, "  %.0f kt", v.vel); l2 += b; }
+            if (v.rumo >= 0 && !v.noChao) { char b[24]; std::snprintf(b, sizeof b, "  %03.0f\xC2\xB0", v.rumo); l2 += b; }   // rumo
             if (v.fonte == "ADS-B" || v.net) e.l.push_back(l2);
             else {
                 // ACARS / VDL2 / HFDL: a posicao veio numa mensagem e pode ter alguns minutos
