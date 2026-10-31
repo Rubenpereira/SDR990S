@@ -265,6 +265,25 @@ struct Proj {
 };
 
 // recorta o segmento a-b dentro do circulo (c, R)
+// Valor da ficha que se pode selecionar e copiar (Ctrl+C): um campo so de leitura, sem
+// moldura, que parece texto
+void valorCopiavel(const char* id, const std::string& v, ImU32 cor)
+{
+    std::string s = v.empty() ? std::string("-") : v;
+    ImGui::PushID(id);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(255, 255, 255, 14));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(255, 255, 255, 22));
+    if (cor) ImGui::PushStyleColor(ImGuiCol_Text, cor);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputText("##v", s.data(), s.size() + 1, ImGuiInputTextFlags_ReadOnly);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(cor ? 4 : 3);
+    ImGui::PopID();
+}
+
 bool recortar(ImVec2 a, ImVec2 b, ImVec2 c, float R, ImVec2& a2, ImVec2& b2)
 {
     const ImVec2 d = b - a, f = a - c;
@@ -433,6 +452,7 @@ struct Ui::RadarEstado {
         std::string voo, prefixo, hex, tipo, empresa, classe, pais, operador;
         std::string vooMsg;                       // o voo como veio na mensagem (G31017), quando virou ICAO (GLO1017)
         bool vooCortado = false;                  // HFDL: so 6 caracteres do voo (AZU2482 -> AZU248)
+        std::string gsDest;                       // HFDL: a estacao de terra com quem ele fala
         std::string vooNet;                       // o voo completo veio da internet (adsb.lol / ADS-B Exchange)
         int alt = AdsbCore::kSemValor, vs = AdsbCore::kSemValor, squawk = -1, msgs = 0, categoria = 0;
         double vel = -1, rumo = -1;
@@ -463,6 +483,7 @@ struct Ui::RadarEstado {
     int memoria = 30;
     bool mapa = true, aeroportos = true, aneis = true, etiquetas = true, fixa = false, rastros = true, vetor = true;
     bool fora = true, cheia = true, paineis = true;
+    bool linhaGs = true;                          // HFDL: linha do aviao ate a estacao de terra com quem fala
     int cor = 0, simbolo = 0;
 
     double ang = 0, ultQuadro = 0, ultLeitura = 0;
@@ -525,6 +546,7 @@ void carregarCfg(Radar& R)
     R.rastros = c.flag("radar_rastro", true);
     R.vetor = c.flag("radar_vetor", true);
     R.fora = c.flag("radar_fora", true);
+    R.linhaGs = c.flag("radar_linha_gs", true);
     R.cheia = c.flag("radar_cheia", true);
     R.paineis = c.flag("radar_paineis", true);
     R.cor = (int)std::clamp(c.num("radar_cor", 0), 0LL, 1LL);
@@ -555,6 +577,7 @@ void salvarCfg(const Radar& R)
     c.set("radar_rastro", R.rastros);
     c.set("radar_vetor", R.vetor);
     c.set("radar_fora", R.fora);
+    c.set("radar_linha_gs", R.linhaGs);
     c.set("radar_cheia", R.cheia);
     c.set("radar_paineis", R.paineis);
     c.set("radar_cor", R.cor);
@@ -637,7 +660,7 @@ void lerAlvos(Radar& R, Decoders& d, double t, bool internet)
             v.fonte = fonte; v.voo = vi.empty() ? a.voo : vi; v.vooMsg = vi.empty() ? std::string() : a.voo;
             v.prefixo = a.prefixo; v.hex = hex; v.msgs = a.msgs; v.alt = a.altPes;
             v.tipo = cad.tipo; v.operador = cad.operador;
-            v.vooCortado = a.vooCortado; v.vooNet.clear();
+            v.vooCortado = a.vooCortado; v.vooNet.clear(); v.gsDest = a.gsDest;
             // HFDL com o voo cortado (AZU248 de AZU2482): procura na internet o aviao perto desta
             // posicao cujo voo comeca assim - dali vem o voo completo (e o ICAO, se faltar)
             if (a.vooCortado && R.netPos && !v.voo.empty()) {
@@ -864,7 +887,7 @@ void Ui::abrirRadar()
     // o radar precisa de um decodificador de aviacao: sem nenhum, liga o ADS-B
     // (a nao ser que o ADS-B venha de outro receptor da rede: ai o dongle fica como esta)
     if (!(decRodando_ && ehAviacao(decTipo_)) && adsbRede_ && !adsbRedeAlvo_.empty()) {
-        evento(R, std::string(T("Radar aberto com o ADS-B pela rede")) + " (" + adsbRedeAlvo_ + ":" + std::to_string(adsbRedeAlvoPorta_) + ")", C_ESCALA);
+        evento(R, std::string(T("Radar aberto com o ADS-B pela rede interna")) + " (" + adsbRedeAlvo_ + ":" + std::to_string(adsbRedeAlvoPorta_) + ")", C_ESCALA);
     } else if (!(decRodando_ && ehAviacao(decTipo_))) {
         if (!r_.ligado()) ligarDesligar();
         decAberta_ = true;
@@ -1194,6 +1217,34 @@ void Ui::telaRadar()
             continue;
         }
         if (v.vivo) ++nTela;
+        // HFDL: linha tracejada ate a estacao de terra com quem o aviao fala (a posicao vem da
+        // tabela do dumphfdl). Fora do alcance, vai ate a borda com o nome da estacao.
+        if (R.linhaGs && !v.gsDest.empty() && aBlip > 0.01f) {
+            const Radar::TerraTab* gt = nullptr;
+            for (const auto& g : R.gsTab) if (g.nome == v.gsDest) { gt = &g; break; }
+            ImVec2 a, b;
+            if (gt && recortar(p, P.xy(gt->lat, gt->lon), C, Rr, a, b)) {
+                const ImU32 cl = comAlfa(C_TERRA, 0.55f * aBlip);
+                const ImVec2 d = b - a;
+                const float len = std::sqrt(d.x * d.x + d.y * d.y);
+                if (len > 1) {
+                    const ImVec2 u = d / len;
+                    for (float x = 0; x < len; x += 9 * s)
+                        dl->AddLine(a + u * x, a + u * std::min(len, x + 5 * s), cl, 1.2f * s);
+                    const ImVec2 fim = P.xy(gt->lat, gt->lon);
+                    const bool dentroGs = dentro(fim);
+                    if (dentroGs) dl->AddCircle(fim, 4 * s, cl, 12, 1.2f * s);
+                    if (!dentroGs || !R.gs.count("G" + gt->nome)) {
+                        // o nome (sem o pais) na ponta: na borda, ou na estacao que nao foi ouvida
+                        const std::string nm = gt->nome.substr(0, gt->nome.find(','));
+                        const ImVec2 ts = fEtq->CalcTextSizeA(11 * s, FLT_MAX, 0, nm.c_str());
+                        const ImVec2 pt = dentroGs ? fim + ImVec2(6 * s, -ts.y * 0.5f)
+                                                   : b - u * (8 * s) - ImVec2(ts.x * (0.5f + u.x * 0.5f), ts.y * (0.5f + u.y * 0.5f));
+                        textoSombra(dl, fEtq, 11 * s, pt, comAlfa(C_TERRA, 0.8f * aBlip), nm.c_str());
+                    }
+                }
+            }
+        }
         // rastro: as posicoes das voltas anteriores
         if (R.rastros) {
             int i = 0;
@@ -1554,8 +1605,8 @@ void Ui::telaRadar()
         const bool algum = aviacao || rede;
         dl->AddCircleFilled(q, 5 * s, algum ? (recebe ? C_FOSFORO : C_AMBAR) : C_VERM, 12);
         char b[96];
-        if (aviacao && rede) std::snprintf(b, sizeof b, "%s + %s", nomeFonte(decTipo_), T("ADS-B pela rede"));
-        else std::snprintf(b, sizeof b, "%s", aviacao ? nomeFonte(decTipo_) : rede ? T("ADS-B pela rede") : T("sem decodificador de aviação"));
+        if (aviacao && rede) std::snprintf(b, sizeof b, "%s + %s", nomeFonte(decTipo_), T("ADS-B pela rede interna"));
+        else std::snprintf(b, sizeof b, "%s", aviacao ? nomeFonte(decTipo_) : rede ? T("ADS-B pela rede interna") : T("sem decodificador de aviação"));
         textoSombra(dl, f_.negrito, f_.negrito->FontSize, q + ImVec2(10 * s, 0), algum ? C_TEXTO : C_AMBAR, b, 0, 0.5f);
     }
     float bx = W - 10 * s;
@@ -1628,7 +1679,7 @@ void Ui::telaRadar()
                 // ADS-B de outro receptor da rede (Beast)
                 auto& ar = d.adsbRede();
                 bolinha(ar.conectado() ? C_FOSFORO : C_AMBAR);
-                ImGui::TextUnformatted(T("ADS-B pela rede"));
+                ImGui::TextUnformatted(T("ADS-B pela rede interna"));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
                 ImGui::TextWrapped("%s", ar.situacao().c_str());
                 ImGui::PopStyleColor();
@@ -1692,6 +1743,10 @@ void Ui::telaRadar()
             ImGui::Checkbox(T("Vetor 1 min"), &R.vetor);
             ImGui::Checkbox(T("Etiqueta fixa"), &R.fixa); ImGui::SameLine(wl * 0.5f);
             ImGui::Checkbox(T("Fora do alcance"), &R.fora);
+            ImGui::Checkbox(T("Linha até a estação de terra (HFDL)"), &R.linhaGs);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", T("Linha tracejada rosa do avião do HFDL até a estação de terra com quem ele está falando\n"
+                                          "(\"Dst GS\" da mensagem). Aparece mesmo quando a estação não foi ouvida."));
             ImGui::Checkbox(T("Posição pela internet (adsb.lol)"), &R.netPos);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", T("Para os aviões que o rádio OUVIU mas sem posição (ACARS / VDL2 / HFDL sem relatório de posição,\n"
@@ -1855,13 +1910,15 @@ void Ui::telaRadar()
                     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(C_TERRA), "%s", g.nome.c_str());
                     ImGui::PopFont();
                     ImGui::TextDisabled("%s", T("Estação de terra do HFDL (transmissão recebida)"));
+                    std::string fichaTxt = g.nome + "\n";
                     if (ImGui::BeginTable("##fichaGs", 2, ImGuiTableFlags_SizingStretchProp)) {
                         ImGui::TableSetupColumn("r", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize(T("Transmissões")).x + 10 * s);
                         ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch);
                         auto linhaG = [&](const char* rot, const std::string& val) {
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", rot);
-                            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(val.empty() ? "-" : val.c_str());
+                            ImGui::TableSetColumnIndex(1); valorCopiavel(rot, val, 0);
+                            fichaTxt += std::string(rot) + ": " + (val.empty() ? std::string("-") : val) + "\n";
                         };
                         char b[160];
                         std::snprintf(b, sizeof b, "%d", g.id); linhaG(T("Estação nº"), b);
@@ -1881,6 +1938,9 @@ void Ui::telaRadar()
                     }
                     ImGui::SameLine();
                     if (ImGui::SmallButton(T("Centralizar"))) { R.vLat = g.lat; R.vLon = g.lon; R.seguir = false; }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(T("Copiar ficha"))) ImGui::SetClipboardText(fichaTxt.c_str());
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("Copia todos os dados da ficha.\nPara copiar um valor só: clique nele, selecione e Ctrl+C."));
                 } else if (it == R.alvos.end()) {
                     ImGui::TextDisabled("%s", T("Clique num avião no radar ou na lista."));
                     ImGui::TextDisabled("%s", T("Duplo clique na lista: seguir o avião."));
@@ -1892,13 +1952,14 @@ void Ui::telaRadar()
                     if (!v.vivo) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 0.6f, 0.2f, 1), "%s", T("(sem sinal)")); }
                     AeronaveHfdl fa;
                     fa.voo = v.voo; fa.prefixo = v.prefixo; fa.hex = v.hex;
+                    std::string fichaTxt = v.nome() + "\n";
                     if (ImGui::BeginTable("##ficha", 2, ImGuiTableFlags_SizingStretchProp)) {
                         auto linha = [&](const char* rot, const std::string& val, ImU32 cor = 0) {
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", rot);
                             ImGui::TableSetColumnIndex(1);
-                            if (cor) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(cor), "%s", val.empty() ? "-" : val.c_str());
-                            else ImGui::TextUnformatted(val.empty() ? "-" : val.c_str());
+                            valorCopiavel(rot, val, cor);
+                            fichaTxt += std::string(rot) + ": " + (val.empty() ? std::string("-") : val) + "\n";
                         };
                         char b[128];
                         linha(T("Voo"), v.vooCortado ? v.voo + "?  " + T("(o HFDL só manda 6 caracteres)") : v.voo);
@@ -1929,6 +1990,7 @@ void Ui::telaRadar()
                         linha(T("Posição"), b);
                         std::snprintf(b, sizeof b, T("%s, %d msgs, há %.0f s"), v.fonte.c_str(), v.msgs, v.idadeAgora(t));
                         linha(T("Recepção"), b);
+                        if (!v.gsDest.empty()) linha(T("Falando com"), v.gsDest, C_TERRA);
                         if (v.net) {
                             std::snprintf(b, sizeof b, T("internet (%s), há %s"), v.netFonte.c_str(), haQuanto(v.idadeAgora(t)).c_str());
                             linha(T("Posição de"), b, C_NET);
@@ -1953,6 +2015,9 @@ void Ui::telaRadar()
                     if (ImGui::SmallButton(R.seguir ? T("Parar de seguir") : T("Seguir"))) R.seguir = !R.seguir;
                     ImGui::SameLine();
                     if (ImGui::SmallButton(T("Centralizar"))) { R.vLat = v.eLat <= 90 ? v.eLat : v.lat; R.vLon = v.eLat <= 90 ? v.eLon : v.lon; R.seguir = false; }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(T("Copiar ficha"))) ImGui::SetClipboardText(fichaTxt.c_str());
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("Copia todos os dados da ficha.\nPara copiar um valor só: clique nele, selecione e Ctrl+C."));
                 }
             }
             ImGui::EndChild();

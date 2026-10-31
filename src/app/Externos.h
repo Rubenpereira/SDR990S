@@ -77,6 +77,7 @@ struct EstadoExterno {
 struct AeronaveHfdl {
     std::string voo, prefixo, hex;     // voo ja normalizado (TAM0803 -> TAM803), prefixo sem os pontos
     bool vooCortado = false;           // HFDL: o Flight ID tem so 6 caracteres (AZU2482 chega como AZU248)
+    std::string gsDest;                // HFDL: a estacao de terra com quem o aviao fala ("Dst GS:" do downlink)
     double lat = 91, lon = 181;
     double posVisto = 0;               // quando veio a posicao (o RADAR AEREO usa)
     int altPes = -2147483647 - 1;      // altitude em pes, quando a mensagem traz (INT_MIN = nao veio)

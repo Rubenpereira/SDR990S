@@ -410,6 +410,18 @@ std::string primeiroAviao(const std::string& j)
     }
     return {};
 }
+// indicativo sem os zeros da frente do numero: IBE0150 -> IBE150, TAP093 -> TAP93 (como o SDR990S guarda)
+std::string normCs(std::string f)
+{
+    for (auto& c : f) c = (char)std::toupper((unsigned char)c);
+    while (!f.empty() && f.back() == ' ') f.pop_back();
+    if (f.size() > 4 && std::isalpha((unsigned char)f[0]) && std::isalpha((unsigned char)f[1]) && std::isalpha((unsigned char)f[2])) {
+        size_t k = 3;
+        while (k + 1 < f.size() && f[k] == '0' && std::isdigit((unsigned char)f[k + 1])) ++k;
+        f = f.substr(0, 3) + f.substr(k);
+    }
+    return f;
+}
 // o aviao da lista "ac" cujo voo comeca com 'prefixo' (o mais perto do ponto, se houver mais de um)
 std::string aviaoComVoo(const std::string& j, const std::string& prefixo, double la0, double lo0)
 {
@@ -426,8 +438,7 @@ std::string aviaoComVoo(const std::string& j, const std::string& prefixo, double
         else if (j[i] == '}') {
             if (--n == 0) {
                 const std::string o = j.substr(ini, i - ini + 1);
-                std::string f = valorJson(o, "flight");
-                for (auto& c : f) c = (char)std::toupper((unsigned char)c);
+                const std::string f = normCs(valorJson(o, "flight"));
                 if (f.size() >= prefixo.size() && f.compare(0, prefixo.size(), prefixo) == 0) {
                     double la = 0, lo = 0, d = 0;
                     if (numJson(o, "lat", la) && numJson(o, "lon", lo)) d = (la - la0) * (la - la0) + (lo - lo0) * (lo - lo0);
@@ -473,7 +484,7 @@ void ConsultaPosicao::comecar()
             p.hex = valorJson(o, "hex");
             for (auto& c : p.hex) c = (char)std::toupper((unsigned char)c);
             if (!p.hex.empty() && p.hex[0] == '~') p.hex.clear();       // endereco nao-ICAO (TIS-B)
-            p.voo = valorJson(o, "flight");
+            p.voo = normCs(valorJson(o, "flight"));
             p.prefixo = valorJson(o, "r");
             p.tipo = valorJson(o, "t");
             double la = 0, lo = 0, x = 0;
@@ -528,6 +539,17 @@ void ConsultaPosicao::comecar()
             char ptTxt[64] = {};
             std::snprintf(ptTxt, sizeof ptTxt, "%.2f/%.2f", ptLa, ptLo);
             const std::string pto = ptTxt;
+            // por voo: a rede guarda o indicativo como o aviao manda, as vezes com zero na frente
+            // (IBE0150, TAP093) - o SDR990S guarda sem (IBE150, TAP93). Tenta as formas com zero.
+            std::vector<std::string> variantes{val};
+            if (tipo == "cs" && val.size() >= 4 && std::isalpha((unsigned char)val[0]) && std::isalpha((unsigned char)val[1]) &&
+                std::isalpha((unsigned char)val[2])) {
+                const std::string num = val.substr(3);
+                bool soDig = !num.empty();
+                for (char c : num) if (!std::isdigit((unsigned char)c)) soDig = false;
+                for (size_t w : {(size_t)3, (size_t)4})
+                    if (soDig && num.size() < w) variantes.push_back(val.substr(0, 3) + std::string(w - num.size(), '0') + num);
+            }
             {
                 std::lock_guard<std::mutex> lk(e->m);
                 e->ultConsulta[ch] = agora;
@@ -535,15 +557,18 @@ void ConsultaPosicao::comecar()
             proxima = agora + 2;
             Pos p;
             bool respondeu = false;
+            for (size_t iv = 0; iv < variantes.size() && !p.achou; ++iv) {
+            const std::string& vv = variantes[iv];
+            if (iv) std::this_thread::sleep_for(std::chrono::seconds(1));
             // 1) ADS-B Exchange (RapidAPI) - so com a chave do usuario
             if (usarX) {
                 const char* host = "adsbexchange-com1.p.rapidapi.com";
                 std::string url = std::string("https://") + host + "/v2/";
-                if (tipo == "pt") {                         // 150 milhas nauticas em volta do ponto
+                if (tipo == "pt") {                         // 250 milhas em volta do ponto (a posicao do HFDL pode ter minutos)
                     std::string la = pto.substr(0, pto.find('/')), lo = pto.substr(pto.find('/') + 1);
-                    url += "lat/" + la + "/lon/" + lo + "/dist/150/";
+                    url += "lat/" + la + "/lon/" + lo + "/dist/250/";
                 } else
-                    url += tipo == "hex" ? "hex/" + hexMin + "/" : tipo == "reg" ? "registration/" + val + "/" : "callsign/" + val + "/";
+                    url += tipo == "hex" ? "hex/" + hexMin + "/" : tipo == "reg" ? "registration/" + val + "/" : "callsign/" + vv + "/";
                 std::string corpo;
                 const int st = baixar(url, corpo, "X-RapidAPI-Key: " + chaveX + "\r\nX-RapidAPI-Host: " + host + "\r\n");
                 std::lock_guard<std::mutex> lk(e->m);
@@ -568,7 +593,7 @@ void ConsultaPosicao::comecar()
             // 2) adsb.lol (aberto, gratis): sem chave, ou quando o ADS-B Exchange nao achou / nao respondeu
             if (!p.achou && usarLol) {
                 std::string url = "https://api.adsb.lol/v2/";
-                url += tipo == "pt" ? "point/" + pto + "/150" : tipo == "hex" ? "hex/" + hexMin : tipo == "reg" ? "reg/" + val : "callsign/" + val;
+                url += tipo == "pt" ? "point/" + pto + "/250" : tipo == "hex" ? "hex/" + hexMin : tipo == "reg" ? "reg/" + val : "callsign/" + vv;
                 std::string corpo;
                 const int st = baixar(url, corpo);
                 std::lock_guard<std::mutex> lk(e->m);
@@ -586,6 +611,7 @@ void ConsultaPosicao::comecar()
                     e->situacao = "adsb.lol: " + std::to_string(e->consultas) + " consulta(s)";
                 }
             }
+            }   // variantes do voo
             if (respondeu) {
                 std::lock_guard<std::mutex> lk(e->m);
                 e->res[ch] = p;

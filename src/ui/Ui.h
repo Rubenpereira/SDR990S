@@ -215,6 +215,8 @@ private:
 
     // janelas
     bool cfgAberta_ = false, sobreAberta_ = false;
+    // HFDL/ADSB/ACARS/VDL2 ligam o MUTE; ao sair do decodificador ele volta como estava
+    bool mudoPeloDec_ = false, mudoAntesDec_ = false; int mudoRx_ = 0;
     std::string erro_;
     double erroAte_ = 0;
     char freqTxt_[32] = {0};

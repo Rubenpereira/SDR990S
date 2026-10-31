@@ -523,6 +523,17 @@ void Hfdl::processarBloco()
     // de OUTRO aviao (ex.: AZU248 aparecia com o 38873B). Quando a mensagem diz o voo ou o prefixo,
     // vale o voo/prefixo e esse codigo e ignorado.
     if (hexDoCache && (!voo.empty() || !reg.empty())) hex.clear();
+    // downlink: a estacao de terra para quem o aviao mandou ("Dst GS: Riverhead, New York")
+    std::string gsDest;
+    {
+        const auto pg = b.find("Dst GS: ");
+        if (pg != std::string::npos) {
+            const auto fim = b.find('\n', pg);
+            gsDest = b.substr(pg + 8, fim == std::string::npos ? std::string::npos : fim - pg - 8);
+            while (!gsDest.empty() && (gsDest.back() == ' ' || gsDest.back() == '\r')) gsDest.pop_back();
+            if (gsDest.size() > 60) gsDest.clear();
+        }
+    }
     if (voo.empty() && reg.empty() && hex.empty()) return;
     double la = 91, lo = 181, fk = 0;
     // "Lat:/Lon:" do Performance data / Frequency data e, nas mensagens ACARS que vem dentro
@@ -565,6 +576,7 @@ void Hfdl::processarBloco()
         const bool jaCompleto = !a.voo.empty() && !a.vooCortado && a.voo != voo && mesmoVoo(a);
         if (!(cortado && jaCompleto)) { a.voo = voo; a.vooCortado = cortado; }   // o cortado nao apaga o completo
     }
+    if (!gsDest.empty()) a.gsDest = gsDest;
     if (!reg.empty()) a.prefixo = reg;
     if (pos) { a.lat = la; a.lon = lo; a.posVisto = agora(); }
     if (alt != INT_MIN) a.altPes = alt;

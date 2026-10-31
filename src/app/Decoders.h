@@ -104,11 +104,11 @@ public:
         const Tipo t = tipo_.load();
         return (t == DMR && dsd_.rodando()) || (t == TETRA && tetra_.rodando()) || (t == DRM && drm_.rodando() && drm_.audioBom());   // DRM: so com audio bom; antes, o som do radio
     }
-    // ADSB, ACARS e VDL2 decodificam o IQ: o som do radio (estalos e chiado
-    // do AM) nao serve para nada, entao fica mudo enquanto um deles roda
+    // ADSB, ACARS, VDL2 e HFDL decodificam o IQ: o som do radio (estalos e
+    // chiado) nao serve para nada, entao fica mudo enquanto um deles roda
     bool silenciaAudio() const {
         const Tipo t = tipo_.load();
-        return t == ADSB || t == ACARS || t == VDL2;
+        return t == ADSB || t == ACARS || t == VDL2 || t == HFDL;
     }
     void puxarVoz(int16_t* out, size_t n, uint32_t sps) {
         if (tipo_.load() == TETRA) { tetra_.puxarVoz(out, n, sps); return; }

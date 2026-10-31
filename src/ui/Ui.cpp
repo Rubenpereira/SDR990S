@@ -292,7 +292,7 @@ void Ui::salvarEstado()
     c.set("wf_range", (double)wfRange_); c.set("wf_brilho", (double)wfBrilho_);
     c.set("wf_speed", (double)wfSpeed_); c.set("wf_speed_esc", (double)wfSpeedEsc_); c.set("wf_auto", autoWf_);
     c.set("nr_esp", nrEsp_); c.set("nr_esp_forca", (double)nrEspForca_);
-    c.set("mudo", mudo_); c.set("passo", passo_);
+    c.set("mudo", mudoPeloDec_ && mudoRx_ == ativo_ ? mudoAntesDec_ : mudo_); c.set("passo", passo_);
     c.set("mem_regua", memVisivel_);
     c.set("mem_filtro", memFiltroTipo_);
     c.set("dec_rtty_baud", (double)decAj_.rttyBaud);
@@ -309,7 +309,11 @@ void Ui::salvarEstado()
     c.set("if_larg", ifTam_);
     salvarRadar();
     if (memSujo_) salvarMemorias();
+    // o MUTE que o decodificador ligou nao fica gravado: grava como o usuario tinha
+    const bool mudoDec = mudoPeloDec_ && rx_[mudoRx_].mute;
+    if (mudoDec) rx_[mudoRx_].mute = mudoAntesDec_;
     salvarPainel();
+    if (mudoDec) rx_[mudoRx_].mute = true;
     c.salvar();
 }
 
@@ -3665,6 +3669,19 @@ void Ui::sintonizarDecoder(int t)
 void Ui::escolherDecoder(int t, bool sintonizarModo)
 {
     decTipo_ = t;
+    {
+        // HFDL, ADSB, ACARS e VDL2 decodificam o IQ: o som nao serve para nada -> MUTE ligado.
+        // Saindo para outro decodificador (ou nenhum), o MUTE volta como estava.
+        const bool mudoDec = t == Decoders::HFDL || t == Decoders::ADSB || t == Decoders::ACARS || t == Decoders::VDL2;
+        // (o MUTE e o do receptor ativo - a tecla MUTE do MAIN/SUB; mudo_ so espelha)
+        if (mudoDec && !mudoPeloDec_) {
+            mudoRx_ = ativo_; mudoAntesDec_ = rx_[mudoRx_].mute; mudoPeloDec_ = true;
+            rx_[mudoRx_].mute = true; mudo_ = true;
+        } else if (!mudoDec && mudoPeloDec_) {
+            rx_[mudoRx_].mute = mudoAntesDec_; mudoPeloDec_ = false;
+            if (mudoRx_ == ativo_) mudo_ = mudoAntesDec_;
+        }
+    }
     decMin_ = false;          // escolher um decodificador traz o painel de volta da barra
     auto& d = r_.decoders();
     if (t == Decoders::NENHUM) { d.parar(); decRodando_ = false; devolverModo(); return; }

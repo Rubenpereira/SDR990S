@@ -230,6 +230,12 @@ ADSB, ACARS, VDL2 e HFDL)
    (rapidapi.com/adsbx/api/adsbexchange-com1) e cola a propria chave. Com a
    chave, o radar procura primeiro la e, se nao achar, no adsb.lol (gratis).
    Vale para ADS-B, ACARS, VDL2 e HFDL. A chave fica so no SDR990S.ini.
+ - Ficha do alvo: clique num valor para selecionar e copiar (Ctrl+C); o
+   botao "Copiar ficha" copia tudo.
+ - HFDL, ADSB, ACARS e VDL2 ligam o MUTE ao abrir; ao sair, volta como estava.
+ - HFDL: cada aviao tem uma linha tracejada rosa ate a estacao de terra com
+   quem ele esta falando ("Dst GS"), mesmo que voce nao ouca a estacao.
+   Desliga na caixinha "Linha ate a estacao de terra (HFDL)".
  - HFDL: as estacoes de terra que voce ouve transmitindo (squitter, uplink:
    "Src GS: Santa Cruz, Bolivia") aparecem como torre de antena ROSA, na
    posicao da tabela do dumphfdl, com ondas saindo a cada transmissao
