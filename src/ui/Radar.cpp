@@ -629,8 +629,9 @@ void lerAlvos(Radar& R, Decoders& d, double t, bool internet)
                 R.posNet.chaveAdsbx(R.chaveX);
                 R.posNet.pedir(k);
                 ConsultaPosicao::Pos p;
-                if (R.posNet.pegar(k, p) && p.voo.size() > v.voo.size() && p.voo.compare(0, v.voo.size(), v.voo) == 0) {
-                    if (v.vooMsg.empty()) v.vooMsg = v.voo;
+                if (R.posNet.pegar(k, p) && p.voo.size() >= v.voo.size() && p.voo.compare(0, v.voo.size(), v.voo) == 0) {
+                    // achou: o voo completo (AZU2482) - ou o mesmo voo, que entao ja estava completo (AZU248)
+                    if (v.vooMsg.empty() && p.voo != v.voo) v.vooMsg = v.voo;
                     v.voo = p.voo; v.vooCortado = false; v.vooNet = p.fonte;
                     if (v.hex.empty()) v.hex = p.hex;
                     if (v.prefixo.empty()) v.prefixo = p.prefixo;

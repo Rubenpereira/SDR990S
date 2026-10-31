@@ -513,7 +513,8 @@ void Hfdl::processarBloco()
     // Um indicativo ICAO de 7 (AZU2482) chega cortado (AZU248) - nao da para saber o ultimo digito.
     const bool cortado = voo.size() == 6 && std::isalpha((unsigned char)voo[0]) && std::isalpha((unsigned char)voo[1]) &&
                          std::isalpha((unsigned char)voo[2]) && std::isdigit((unsigned char)voo[3]) &&
-                         std::isdigit((unsigned char)voo[4]) && std::isdigit((unsigned char)voo[5]);
+                         std::isdigit((unsigned char)voo[4]) && std::isdigit((unsigned char)voo[5]) &&
+                         voo[3] != '0';   // "AEA042": o zero e enchimento - o numero (42) coube inteiro
     if (voo.empty()) voo = tokenApos(b, "Flight:", false, "", 8);
     if (!voo.empty()) voo = normVoo(voo);
     const std::string reg = tokenApos(b, "Reg:", true, "-", 8);
