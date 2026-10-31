@@ -198,6 +198,65 @@ ADSB (DATA ou PF A > Decodificador > ADSB)
  - Precisa de antena para 1090 MHz (uma vertical de 6,9 cm ja funciona) e
    ganho alto. Pelo rtl_tcp a rede tem de aguentar ~5 MB/s (2,4 Msps).
 
+RADAR AEREO (Decodificador > RADAR AEREO, ou o botao RADAR AEREO na janela do
+ADSB, ACARS, VDL2 e HFDL)
+ - Uma tela de radar, em tela cheia, com os avioes que o dongle esta ouvindo.
+   Nao e um decodificador novo: usa o que estiver rodando (se nenhum de
+   aviacao estiver ligado, liga o ADSB). O melhor e o ADSB, que manda a
+   posicao varias vezes por segundo; o ACARS, o VDL2 e o HFDL mandam so de
+   vez em quando (o aviao fica no radar 15 min na ultima posicao recebida).
+   No ACARS e no VDL2 so aparece o aviao cuja mensagem traz a posicao
+   (relatorio de posicao); a etiqueta mostra ha quanto tempo ela veio. A
+   tabela do ACARS/VDL2 tem a coluna Posicao.
+   O voo dessas mensagens vem com o codigo IATA da companhia (G31017 =
+   GOL): no radar ele aparece como GLO1017, com o nome da companhia. O
+   codigo ICAO, o modelo e o operador vem do hexdb.io pelo prefixo (cada
+   prefixo e consultado uma vez e guardado em acars_prefixos.txt).
+ - Aviao que o radio ouviu SEM posicao (ACARS/VDL2/HFDL sem relatorio de
+   posicao, Modo S sem ADS-B): o radar pega a posicao na rede aberta
+   adsb.lol pela internet. Esses aparecem SO EM CONTORNO, azul-claro, com
+   [NET] na etiqueta - a posicao nao foi o seu receptor. Desliga na caixinha
+   "Posicao pela internet (adsb.lol)".
+ - OPCIONAL: chave do ADS-B Exchange (campo embaixo da caixinha). O ADS-B
+   Exchange e PAGO: cada um assina um plano da API no RapidAPI
+   (rapidapi.com/adsbx/api/adsbexchange-com1) e cola a propria chave. Com a
+   chave, o radar procura primeiro la e, se nao achar, no adsb.lol (gratis).
+   Vale para ADS-B, ACARS, VDL2 e HFDL. A chave fica so no SDR990S.ini.
+ - HFDL: as estacoes de terra que voce ouve transmitindo (squitter, uplink:
+   "Src GS: Santa Cruz, Bolivia") aparecem como torre de antena ROSA, na
+   posicao da tabela do dumphfdl, com ondas saindo a cada transmissao
+   recebida. Ficam acesas enquanto sao ouvidas (somem 30 min depois).
+ - Na primeira vez pergunta o centro (a sua estacao): locator (GG87 ou
+   GG87jb) ou coordenadas (-22.8349,-42.3599). Fica no SDR990S.ini; o botao
+   CENTRO troca. Cada um coloca a sua.
+ - A agulha gira 360 graus. Quando passa por um aviao que esta sendo ouvido,
+   ele acende na posicao daquele instante e vai apagando; se continua sendo
+   ouvido, acende de novo na volta seguinte. Se parou de ser ouvido (ADSB:
+   30 s, ajustavel), nao volta mais.
+ - Etiqueta de cada aviao: voo/prefixo, nivel de voo (FL) ou pes com a seta
+   de subida/descida, velocidade em nos, modelo e empresa. Rastro das voltas
+   anteriores e vetor de 1 minuto. Squawk 7500/7600/7700 pisca em vermelho.
+   Quem esta alem do alcance aparece como seta na borda, com a distancia
+   (util no HFDL, que ouve avioes a milhares de km).
+ - Mapa com a costa, as fronteiras e as divisas dos estados (Natural Earth
+   1:50m), os aeroportos grandes e medios do mundo (OurAirports), aneis de
+   distancia em volta da estacao e a escala de 0 a 359 graus.
+ - Abre sempre com 450 km de alcance. A roda do mouse (ou a barra e os
+   botoes) vai de 10 km ate 20.000 km - o planeta inteiro, para o HFDL ver
+   avioes na Europa, nos EUA ou na Africa. Arrastar move a vista, duplo
+   clique centraliza, RESET (ou Home) volta para a estacao e para 450 km.
+   Botao direito: menu (centralizar, seguir o aviao, copiar as coordenadas,
+   usar o ponto como centro do radar).
+ - Painel da esquerda: estacao, recepcao (mensagens/s com grafico, nivel,
+   aviao mais distante) e os ajustes (volta da agulha, quanto tempo o eco
+   fica aceso, mapa, aeroportos, etiquetas, cor por empresa ou por
+   altitude...). Painel da direita: lista dos alvos por distancia, ficha do
+   aviao escolhido (FlightAware, ADS-B Exchange, Google Maps, seguir),
+   eventos (aviao novo, perdido, emergencia) e as mensagens do decodificador.
+ - VOLTAR (ESC) volta para o programa e o decodificador continua ouvindo;
+   FECHAR para o decodificador e devolve o radio como estava. F11 ou o botao
+   TELA CHEIA / JANELA alterna entre a tela cheia e a janela.
+
 SATELITES (DATA ou PF A > Decodificador > SATELITES)
  - A janela lista os satelites, a proxima passagem de cada um (hora local), o
    grafico em cruz (N/L/S/O) com o caminho no ceu, onde o satelite ENTRA

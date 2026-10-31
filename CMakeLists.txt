@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SDR990S VERSION 1.2.5 LANGUAGES C CXX)
+project(SDR990S VERSION 1.2.6 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 #  SDR-990S - receptor SDR com painel de radio (Windows 7 SP1 ate 11)
@@ -72,6 +72,7 @@ set(SOURCES
     src/ui/Painel.cpp
     src/ui/Idioma.cpp
     src/ui/Satelites.cpp
+    src/ui/Radar.cpp
     src/sat/Rastreador.cpp
     src/sat/SatCatalogo.cpp
     third_party/sgp4/CoordGeodetic.cpp

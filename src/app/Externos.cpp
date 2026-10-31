@@ -1,4 +1,6 @@
 #include "Externos.h"
+#include "PosicaoAcars.h"
+#include "../decoders/AdsbEmpresas.h"
 #include "../ui/Idioma.h"
 
 #include <winsock2.h>
@@ -400,7 +402,7 @@ bool Hfdl::iniciar(const std::vector<double>& canaisKHz, double centroHz, uint32
     std::swprintf(b, 64, L" --centerfreq %.3f --utc", centroHz / 1000.0);
     args += b;
     // A tabela de estacoes da o NOME de quem transmite (senao so o numero)
-    if (existe(pasta + L"\\hfdl_systable.conf")) args += L" --system-table \"" + pasta + L"\\hfdl_systable.conf\"";
+    if (existe(pasta + L"\\hfdl_systable.conf")) args += L" --system-table hfdl_systable.conf";   // (roda dentro da pasta decoders)
     for (double c : canaisKHz) { std::swprintf(b, 64, L" %.1f", c); args += b; }
     centroHz_ = centroHz; taxa_ = taxa; fora_ = false;
     ext_.teto = 64u << 20;          // ~8 s de 1 Msps em CF32
@@ -468,23 +470,64 @@ void Hfdl::processarBloco()
     if (bloco_.empty()) return;
     std::string b;
     b.swap(bloco_);
-    std::string hex = tokenApos(b, "ICAO:", false, "", 6);
+    // a estacao de terra que TRANSMITIU ("Src GS: Santa Cruz, Bolivia"): squitter e uplinks.
+    // O dumphfdl tira o nome da tabela (hfdl_systable.conf) pelo numero da estacao que vem no
+    // quadro - e a propria transmissao que diz quem e (nao e pela distancia)
+    {
+        const auto pg = b.find("Src GS: ");
+        if (pg != std::string::npos) {
+            const auto fim = b.find('\n', pg);
+            std::string nome = b.substr(pg + 8, fim == std::string::npos ? std::string::npos : fim - pg - 8);
+            while (!nome.empty() && (nome.back() == ' ' || nome.back() == '\r')) nome.pop_back();
+            double fkg = 0, snr = -99;
+            const auto k = b.find(" kHz]");
+            const auto a0 = k == std::string::npos ? std::string::npos : b.rfind('[', k);
+            if (a0 != std::string::npos) fkg = std::atof(b.c_str() + a0 + 1);
+            const auto kd = b.find(" dB]");
+            const auto a1 = kd == std::string::npos ? std::string::npos : b.rfind('[', kd);
+            if (a1 != std::string::npos) snr = std::atof(b.c_str() + a1 + 1);
+            if (!nome.empty() && nome.size() < 60) {
+                std::lock_guard<std::mutex> lk(m_);
+                EstacaoHfdl& e = estacoes_[nome];
+                e.nome = nome;
+                if (fkg > 0) e.freqKHz = fkg;
+                e.snrDb = snr;
+                ++e.msgs;
+                e.visto = agora();
+            }
+        }
+    }
+    std::string hex = tokenApos(b, "ICAO:", false, "", 6);   // logon/logoff: vem no proprio quadro
     if (hex.size() != 6) hex.clear();
-    if (hex.empty()) {                                  // "AC: 221 (39CF01)"
+    bool hexDoCache = false;
+    if (hex.empty()) {                                  // "Src AC: 221 (39CF01)"
         const auto p = b.find("AC: ");
         if (p != std::string::npos) {
             const auto a = b.find('(', p), f = b.find(')', p);
-            if (a != std::string::npos && f == a + 7 && b.find('\n', p) > a) hex = b.substr(a + 1, 6);
+            if (a != std::string::npos && f == a + 7 && b.find('\n', p) > a) { hex = b.substr(a + 1, 6); hexDoCache = true; }
         }
     }
     for (char c : hex) if (!std::isxdigit((unsigned char)c)) { hex.clear(); break; }
     std::string voo = tokenApos(b, "Flight ID:", false, "", 8);
+    // Performance data / Frequency data: o Flight ID tem so 6 caracteres (dumphfdl: memcpy de 6).
+    // Um indicativo ICAO de 7 (AZU2482) chega cortado (AZU248) - nao da para saber o ultimo digito.
+    const bool cortado = voo.size() == 6 && std::isalpha((unsigned char)voo[0]) && std::isalpha((unsigned char)voo[1]) &&
+                         std::isalpha((unsigned char)voo[2]) && std::isdigit((unsigned char)voo[3]) &&
+                         std::isdigit((unsigned char)voo[4]) && std::isdigit((unsigned char)voo[5]);
     if (voo.empty()) voo = tokenApos(b, "Flight:", false, "", 8);
     if (!voo.empty()) voo = normVoo(voo);
     const std::string reg = tokenApos(b, "Reg:", true, "-", 8);
+    // O codigo entre parenteses NAO vem do aviao: e o cache do dumphfdl (frequencia + numero que a
+    // estacao deu ao aviao). Se o logoff de um e o logon do outro nao foram ouvidos, o numero ja e
+    // de OUTRO aviao (ex.: AZU248 aparecia com o 38873B). Quando a mensagem diz o voo ou o prefixo,
+    // vale o voo/prefixo e esse codigo e ignorado.
+    if (hexDoCache && (!voo.empty() || !reg.empty())) hex.clear();
     if (voo.empty() && reg.empty() && hex.empty()) return;
     double la = 91, lo = 181, fk = 0;
-    const bool pos = numApos(b, "Lat:", la) && numApos(b, "Lon:", lo) && std::fabs(la) <= 90 && std::fabs(lo) <= 180;
+    // "Lat:/Lon:" do Performance data / Frequency data e, nas mensagens ACARS que vem dentro
+    // do HFDL (Enveloped data), o formato do FMS - o mesmo leitor do ACARS e do VDL2
+    int alt = INT_MIN;
+    const bool pos = posicaoAcars(b, la, lo, &alt);
     {
         const auto k = b.find(" kHz]");
         const auto a = b.rfind('[', k);
@@ -499,16 +542,31 @@ void Hfdl::processarBloco()
         if (!voo.empty() && hexConhecido_.count("V" + voo)) hex = hexConhecido_["V" + voo];
         else if (!reg.empty() && hexConhecido_.count("R" + reg)) hex = hexConhecido_["R" + reg];
     }
-    // acha o registro do aviao por codigo, voo ou prefixo
+    // acha o registro do aviao por codigo, voo ou prefixo. O voo cortado (AZU248) tambem casa com o
+    // completo (AZU2482 / AD2482) que veio antes, e o completo casa com um cortado que veio antes.
+    auto icaoDe = [&](const std::string& v, const std::string& p) { const std::string i = vooParaIcao(v, p); return i.empty() ? v : i; };
+    const std::string vooIcao = voo.empty() ? std::string() : icaoDe(voo, reg);
+    auto mesmoVoo = [&](const AeronaveHfdl& a) {
+        if (voo.empty() || a.voo.empty()) return false;
+        if (a.voo == voo) return true;
+        const std::string ai = icaoDe(a.voo, a.prefixo);
+        if (cortado && ai.size() > voo.size() && ai.compare(0, voo.size(), voo) == 0) return true;
+        if (a.vooCortado && vooIcao.size() > a.voo.size() && vooIcao.compare(0, a.voo.size(), a.voo) == 0) return true;
+        return false;
+    };
     std::string chave;
     for (auto& [k, a] : avioes_)
-        if ((!hex.empty() && a.hex == hex) || (!voo.empty() && a.voo == voo) || (!reg.empty() && a.prefixo == reg)) { chave = k; break; }
+        if ((!hex.empty() && a.hex == hex) || mesmoVoo(a) || (!reg.empty() && a.prefixo == reg)) { chave = k; break; }
     if (chave.empty()) chave = !hex.empty() ? hex : !voo.empty() ? voo : reg;
     AeronaveHfdl& a = avioes_[chave];
     if (!hex.empty()) a.hex = hex;
-    if (!voo.empty()) a.voo = voo;
+    if (!voo.empty()) {
+        const bool jaCompleto = !a.voo.empty() && !a.vooCortado && a.voo != voo && mesmoVoo(a);
+        if (!(cortado && jaCompleto)) { a.voo = voo; a.vooCortado = cortado; }   // o cortado nao apaga o completo
+    }
     if (!reg.empty()) a.prefixo = reg;
-    if (pos) { a.lat = la; a.lon = lo; }
+    if (pos) { a.lat = la; a.lon = lo; a.posVisto = agora(); }
+    if (alt != INT_MIN) a.altPes = alt;
     if (fk > 0) a.freqKHz = fk;
     ++a.msgs;
     a.visto = agora();
@@ -517,6 +575,14 @@ void Hfdl::processarBloco()
         for (auto it = avioes_.begin(); it != avioes_.end(); ++it) if (it->second.visto < velho->second.visto) velho = it;
         avioes_.erase(velho);
     }
+}
+
+std::vector<EstacaoHfdl> Hfdl::estacoes()
+{
+    std::lock_guard<std::mutex> lk(m_);
+    std::vector<EstacaoHfdl> v;
+    for (const auto& [k, e] : estacoes_) v.push_back(e);
+    return v;
 }
 
 std::vector<AeronaveHfdl> Hfdl::aeronaves()
@@ -1033,6 +1099,9 @@ void Acars::processarBloco()
     if (!voo.empty()) voo = normVoo(voo);
     const std::string reg = tokenApos(b, "reg:", true, "-", 8);
     if (voo.empty() && reg.empty()) return;
+    double la = 91, lo = 181;
+    int alt = INT_MIN;
+    const bool pos = posicaoAcars(b, la, lo, &alt);   // relatorio de posicao no texto (POS, FPN, DFDR...)
     // com audio por arquivo o acarsdec nao sabe a frequencia: "[#2 (L:..." = segundo canal
     double fk = 0;
     const auto pf = b.find("(F:");
@@ -1049,6 +1118,8 @@ void Acars::processarBloco()
     AeronaveHfdl& a = avioes_[chave];
     if (!voo.empty()) a.voo = voo;
     if (!reg.empty()) a.prefixo = reg;
+    if (pos) { a.lat = la; a.lon = lo; a.posVisto = agora(); }
+    if (alt != INT_MIN) a.altPes = alt;
     if (fk > 0) a.freqKHz = fk;
     ++a.msgs;
     a.visto = agora();
@@ -1162,6 +1233,9 @@ void Vdl2::processarBloco()
     if (!voo.empty()) voo = normVoo(voo);
     const std::string reg = tokenApos(b, "Reg:", true, "-", 8);
     if (voo.empty() && reg.empty() && hex.empty()) return;
+    double la = 91, lo = 181;
+    int alt = INT_MIN;
+    const bool pos = posicaoAcars(b, la, lo, &alt);   // XID "Aircraft location", ACARS dentro do VDL2, ADS-C
     double fk = 0;
     {
         const auto p = b.find("] [");
@@ -1176,6 +1250,8 @@ void Vdl2::processarBloco()
     if (!hex.empty()) a.hex = hex;
     if (!voo.empty()) a.voo = voo;
     if (!reg.empty()) a.prefixo = reg;
+    if (pos) { a.lat = la; a.lon = lo; a.posVisto = agora(); }
+    if (alt != INT_MIN) a.altPes = alt;
     if (fk > 0) a.freqKHz = fk;
     ++a.msgs;
     a.visto = agora();

@@ -25,11 +25,12 @@ rem --- pasta pronta para usar/levar: SDR990S.exe + DLLs do dongle + decoders --
 set PRONTO=%~dp0pronto
 if not exist "%PRONTO%" mkdir "%PRONTO%"
 copy /y SDR990S.exe "%PRONTO%\" >nul
-for %%d in (librtlsdr.dll rtlsdr.dll libusb-1.0.dll pthreadVC2.dll) do (
+if errorlevel 1 goto :naocopiou
+for %%d in (librtlsdr.dll rtlsdr.dll libusb-1.0.dll pthreadVC2.dll msvcr100.dll vcruntime140.dll) do (
   if not exist "%PRONTO%\%%d" if exist "%~dp0third_party\librtlsdr\lib\%%d" copy /y "%~dp0third_party\librtlsdr\lib\%%d" "%PRONTO%\" >nul
 )
 rem --- as DLLs tambem ao lado do exe da pasta build (se alguem abrir por la, o radio abre) ---
-for %%d in (librtlsdr.dll rtlsdr.dll libusb-1.0.dll pthreadVC2.dll) do (
+for %%d in (librtlsdr.dll rtlsdr.dll libusb-1.0.dll pthreadVC2.dll msvcr100.dll vcruntime140.dll) do (
   if exist "%~dp0third_party\librtlsdr\lib\%%d" copy /y "%~dp0third_party\librtlsdr\lib\%%d" "%~dp0build\" >nul
 )
 if not exist "%PRONTO%\bookmarks.json" copy /y "%~dp0bookmarks.json" "%PRONTO%\" >nul
@@ -42,6 +43,14 @@ echo      E so copiar a pasta "pronto" para qualquer PC e rodar o SDR990S.exe
 echo.
 if /i not "%1"=="nopause" pause
 exit /b 0
+
+:naocopiou
+echo.
+echo [ERRO] Compilou, mas NAO consegui copiar o SDR990S.exe para a pasta pronto:
+echo        o programa esta aberto. Feche o SDR990S e rode o COMPILAR.bat de novo.
+if /i not "%1"=="nopause" pause
+exit /b 1
+
 
 :falhou
 echo.

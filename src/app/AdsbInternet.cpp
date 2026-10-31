@@ -5,7 +5,9 @@
 #include <windows.h>
 #include <wininet.h>
 
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <cstdio>
@@ -19,7 +21,7 @@ namespace {
 
 // Baixa um endereco (WinINet: do Windows 7 ao 11, usa o proxy do sistema).
 // Devolve o codigo HTTP (0 = sem conexao).
-int baixar(const std::string& url, std::string& out)
+int baixar(const std::string& url, std::string& out, const std::string& cabecalhos = {})
 {
     out.clear();
     HINTERNET net = InternetOpenA("SDR990S", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
@@ -29,7 +31,8 @@ int baixar(const std::string& url, std::string& out)
     InternetSetOptionA(net, INTERNET_OPTION_RECEIVE_TIMEOUT, &to, sizeof to);
     DWORD prot = 0x00000800 /*TLS 1.2*/ | 0x00000200 /*TLS 1.1*/;   // Windows 7
     InternetSetOptionA(net, 151 /*INTERNET_OPTION_SECURE_PROTOCOLS*/, &prot, sizeof prot);
-    HINTERNET h = InternetOpenUrlA(net, url.c_str(), "Accept: application/json\r\n", (DWORD)-1,
+    const std::string cab = "Accept: application/json\r\n" + cabecalhos;
+    HINTERNET h = InternetOpenUrlA(net, url.c_str(), cab.c_str(), (DWORD)-1,
                                    INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
     if (!h) { InternetCloseHandle(net); return 0; }
     DWORD status = 0, len = sizeof status;
@@ -213,6 +216,431 @@ void ConsultaHexdb::laco()
         guardar(icao, info, achou);
         if (achou) core_->definirInfo(icao, info.prefixo, info.tipo, info.operador, info.operadorIcao);
     }
+}
+
+// ===========================================================================
+//  ConsultaPrefixo: prefixo -> endereco ICAO, modelo, operador
+// ===========================================================================
+struct ConsultaPrefixo::Estado {
+    std::mutex m;
+    std::map<std::string, Info> achados;
+    std::map<std::string, long long> semCadastro;    // prefixo -> quando (vale 30 dias)
+    std::deque<std::string> fila;
+    std::set<std::string> pedidos;
+    std::atomic<bool> vivo{true};
+    std::string arquivo;
+};
+
+namespace {
+std::string chavePrefixo(const std::string& p)
+{
+    std::string s;
+    for (char c : p) {
+        if (c == '.' || c == ' ') continue;
+        s += (char)std::toupper((unsigned char)c);
+    }
+    return s;
+}
+bool ehHex6(const std::string& s)
+{
+    if (s.size() != 6) return false;
+    for (char c : s) if (!std::isxdigit((unsigned char)c)) return false;
+    return true;
+}
+std::vector<std::string> campos(const std::string& l)
+{
+    std::vector<std::string> c;
+    std::stringstream ss(l);
+    for (std::string x; std::getline(ss, x, ';');) c.push_back(x);
+    return c;
+}
+} // namespace
+
+ConsultaPrefixo::~ConsultaPrefixo()
+{
+    if (e_) e_->vivo = false;      // a thread termina sozinha (ja esta solta)
+}
+
+void ConsultaPrefixo::comecar()
+{
+    e_ = std::make_shared<Estado>();
+    auto e = e_;
+    e->arquivo = pastaDoExe() + "\\acars_prefixos.txt";
+    // 1) o que o ADSB ja consultou: "E49406;PR-XMA;B38M;dono;GLO"
+    {
+        std::ifstream f(pastaDoExe() + "\\adsb_prefixos.txt", std::ios::binary);
+        for (std::string l; std::getline(f, l);) {
+            if (!l.empty() && l.back() == '\r') l.pop_back();
+            const auto c = campos(l);
+            if (c.size() < 2 || !ehHex6(c[0]) || c[1] == "-" || c[1].empty()) continue;
+            Info i;
+            i.hex = c[0];
+            if (c.size() > 2) i.tipo = c[2];
+            if (c.size() > 3) i.operador = c[3];
+            if (c.size() > 4) i.operadorIcao = c[4];
+            e->achados[chavePrefixo(c[1])] = i;
+        }
+    }
+    // 2) as consultas do ACARS/VDL2/HFDL: "PR-GXW;E48FB7;B38M;dono;GLO" ou "PR-XXX;-;<data>"
+    {
+        std::ifstream f(e->arquivo, std::ios::binary);
+        for (std::string l; std::getline(f, l);) {
+            if (!l.empty() && l.back() == '\r') l.pop_back();
+            const auto c = campos(l);
+            if (c.size() < 2 || c[0].empty()) continue;
+            const std::string k = chavePrefixo(c[0]);
+            if (c[1] == "-") {
+                const long long q = c.size() > 2 ? std::atoll(c[2].c_str()) : 0;
+                if (std::time(nullptr) - q < 30LL * 86400) e->semCadastro[k] = q;
+                continue;
+            }
+            if (!ehHex6(c[1])) continue;
+            Info i;
+            i.hex = c[1];
+            if (c.size() > 2) i.tipo = c[2];
+            if (c.size() > 3) i.operador = c[3];
+            if (c.size() > 4) i.operadorIcao = c[4];
+            e->achados[k] = i;
+        }
+    }
+    // a thread: uma consulta por vez, no maximo uma por segundo; sem internet, espera 5 min
+    std::thread([e] {
+        using clk = std::chrono::steady_clock;
+        auto pausaAte = clk::now();
+        while (e->vivo) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            if (clk::now() < pausaAte) continue;
+            std::string p;
+            {
+                std::lock_guard<std::mutex> lk(e->m);
+                if (e->fila.empty()) continue;
+                p = e->fila.front();
+            }
+            std::string corpo;
+            const int st = baixar("https://hexdb.io/reg-hex?reg=" + p, corpo);
+            if (st != 200 && st != 404) { pausaAte = clk::now() + std::chrono::minutes(5); continue; }
+            std::string hex;
+            for (char c : corpo) if (std::isxdigit((unsigned char)c)) hex += (char)std::toupper((unsigned char)c); else if (!std::isspace((unsigned char)c)) { hex.clear(); break; }
+            Info i;
+            const bool achou = st == 200 && ehHex6(hex);
+            if (achou) {
+                i.hex = hex;
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                if (baixar("https://hexdb.io/api/v1/aircraft/" + hex, corpo) == 200) {
+                    i.tipo = valorJson(corpo, "ICAOTypeCode");
+                    i.operador = valorJson(corpo, "RegisteredOwners");
+                    i.operadorIcao = valorJson(corpo, "OperatorFlagCode");
+                }
+            }
+            {
+                std::lock_guard<std::mutex> lk(e->m);
+                e->fila.pop_front();
+                if (achou) e->achados[p] = i; else e->semCadastro[p] = (long long)std::time(nullptr);
+                std::ofstream f(e->arquivo, std::ios::binary | std::ios::app);
+                if (achou) f << p << ';' << i.hex << ';' << i.tipo << ';' << i.operador << ';' << i.operadorIcao << "\r\n";
+                else f << p << ";-;" << (long long)std::time(nullptr) << "\r\n";
+            }
+            pausaAte = clk::now() + std::chrono::seconds(1);
+        }
+    }).detach();
+}
+
+void ConsultaPrefixo::pedir(const std::string& prefixo)
+{
+    const std::string k = chavePrefixo(prefixo);
+    if (k.size() < 3) return;
+    for (char c : k) if (!std::isalnum((unsigned char)c) && c != '-') return;
+    if (!e_) comecar();
+    std::lock_guard<std::mutex> lk(e_->m);
+    if (e_->achados.count(k) || e_->semCadastro.count(k) || e_->pedidos.count(k)) return;
+    e_->pedidos.insert(k);
+    e_->fila.push_back(k);
+}
+
+// ===========================================================================
+//  ConsultaPosicao: a posicao pela internet (adsb.lol)
+// ===========================================================================
+struct ConsultaPosicao::Estado {
+    std::mutex m;
+    std::map<std::string, Pos> res;
+    std::map<std::string, double> ultConsulta;   // chave -> relogio da ultima consulta
+    std::map<std::string, double> ultPedido;     // chave -> relogio do ultimo pedido (so consulta quem ainda e pedido)
+    std::atomic<bool> vivo{true};
+    std::string situacao = "adsb.lol";
+    int consultas = 0;
+    // ADS-B Exchange (RapidAPI), so com a chave do proprio usuario
+    std::string chaveX, sitX;
+    bool xRecusada = false;                      // 401/403: chave errada ou sem assinatura -> para ate trocar a chave
+    double pausaX = 0, pausaLol = 0;
+    int consultasX = 0;
+};
+
+namespace {
+double relogioS()
+{
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+// numero de uma chave num JSON simples ("alt_baro":16625); texto ("ground") nao vale
+bool numJson(const std::string& j, const char* chave, double& v)
+{
+    const std::string k = std::string("\"") + chave + "\"";
+    size_t p = j.find(k);
+    if (p == std::string::npos) return false;
+    p = j.find(':', p + k.size());
+    if (p == std::string::npos) return false;
+    p = j.find_first_not_of(" \t\r\n", p + 1);
+    if (p == std::string::npos || j[p] == '"') return false;
+    char* f = nullptr;
+    v = std::strtod(j.c_str() + p, &f);
+    return f != j.c_str() + p;
+}
+// o primeiro aviao da lista "ac":[ {...} ]
+std::string primeiroAviao(const std::string& j)
+{
+    const auto pa = j.find("\"ac\"");
+    if (pa == std::string::npos) return {};
+    const auto a = j.find('{', pa);
+    const auto fimLista = j.find(']', pa);
+    if (a == std::string::npos || (fimLista != std::string::npos && fimLista < a)) return {};
+    int n = 0;
+    for (size_t i = a; i < j.size(); ++i) {
+        if (j[i] == '{') ++n;
+        else if (j[i] == '}' && --n == 0) return j.substr(a, i - a + 1);
+    }
+    return {};
+}
+// o aviao da lista "ac" cujo voo comeca com 'prefixo' (o mais perto do ponto, se houver mais de um)
+std::string aviaoComVoo(const std::string& j, const std::string& prefixo, double la0, double lo0)
+{
+    const auto pa = j.find("\"ac\"");
+    if (pa == std::string::npos) return {};
+    size_t i = j.find('[', pa);
+    if (i == std::string::npos) return {};
+    std::string melhor;
+    double dMelhor = 1e18;
+    int n = 0;
+    size_t ini = 0;
+    for (++i; i < j.size(); ++i) {
+        if (j[i] == '{') { if (n++ == 0) ini = i; }
+        else if (j[i] == '}') {
+            if (--n == 0) {
+                const std::string o = j.substr(ini, i - ini + 1);
+                std::string f = valorJson(o, "flight");
+                for (auto& c : f) c = (char)std::toupper((unsigned char)c);
+                if (f.size() >= prefixo.size() && f.compare(0, prefixo.size(), prefixo) == 0) {
+                    double la = 0, lo = 0, d = 0;
+                    if (numJson(o, "lat", la) && numJson(o, "lon", lo)) d = (la - la0) * (la - la0) + (lo - lo0) * (lo - lo0);
+                    if (d < dMelhor) { dMelhor = d; melhor = o; }
+                }
+            }
+        } else if (j[i] == ']' && n == 0) break;
+    }
+    return melhor;
+}
+} // namespace
+
+ConsultaPosicao::~ConsultaPosicao()
+{
+    if (e_) e_->vivo = false;
+}
+
+void ConsultaPosicao::comecar()
+{
+    e_ = std::make_shared<Estado>();
+    auto e = e_;
+    std::thread([e] {
+        // le o primeiro aviao da resposta (o formato v2 e o mesmo no adsb.lol e no ADS-B Exchange)
+        // "pt:LAT,LON,VOO": o aviao perto do ponto cujo voo comeca com VOO
+        auto lerPt = [](const std::string& val, double& la, double& lo, std::string& voo) {
+            const auto a = val.find(','), b = val.find(',', a + 1);
+            if (a == std::string::npos || b == std::string::npos) return false;
+            la = std::atof(val.substr(0, a).c_str()); lo = std::atof(val.substr(a + 1, b - a - 1).c_str());
+            voo = val.substr(b + 1);
+            return voo.size() >= 3 && std::fabs(la) <= 90 && std::fabs(lo) <= 180;
+        };
+        auto ler = [](const std::string& corpo, double agora, const char* fonte, const std::string& chave) {
+            Pos p;
+            p.fonte = fonte;
+            std::string o;
+            if (chave.rfind("pt:", 0) == 0) {
+                const std::string val = chave.substr(3);
+                const auto a = val.find(','), b = val.find(',', a + 1);
+                if (a != std::string::npos && b != std::string::npos)
+                    o = aviaoComVoo(corpo, val.substr(b + 1), std::atof(val.c_str()), std::atof(val.c_str() + a + 1));
+            } else o = primeiroAviao(corpo);
+            if (o.empty()) return p;
+            p.hex = valorJson(o, "hex");
+            for (auto& c : p.hex) c = (char)std::toupper((unsigned char)c);
+            if (!p.hex.empty() && p.hex[0] == '~') p.hex.clear();       // endereco nao-ICAO (TIS-B)
+            p.voo = valorJson(o, "flight");
+            p.prefixo = valorJson(o, "r");
+            p.tipo = valorJson(o, "t");
+            double la = 0, lo = 0, x = 0;
+            if (numJson(o, "lat", la) && numJson(o, "lon", lo) && std::fabs(la) <= 90 && std::fabs(lo) <= 180) {
+                double idade = 0;
+                if (!numJson(o, "seen_pos", idade)) numJson(o, "seen", idade);
+                p.lat = la; p.lon = lo; p.quando = agora - idade; p.achou = true;
+            }
+            if (numJson(o, "gs", x)) p.gs = x;
+            if (numJson(o, "track", x)) p.trk = x;
+            if (numJson(o, "alt_baro", x)) p.alt = (int)std::lround(x);
+            else if (valorJson(o, "alt_baro") == "ground") p.noChao = true;
+            if (numJson(o, "baro_rate", x) || numJson(o, "geom_rate", x)) p.vs = (int)std::lround(x);
+            return p;
+        };
+        double proxima = 0;
+        while (e->vivo) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            const double agora = relogioS();
+            if (agora < proxima) continue;
+            std::string chaveX;
+            bool usarX = false, usarLol = false;
+            {
+                std::lock_guard<std::mutex> lk(e->m);
+                chaveX = e->chaveX;
+                usarX = !chaveX.empty() && !e->xRecusada && agora >= e->pausaX;
+                usarLol = agora >= e->pausaLol;
+            }
+            if (!usarX && !usarLol) continue;
+            // com a assinatura paga, cada aviao no maximo a cada 2 min (os planos tem limite por mes)
+            const double intervalo = usarX ? 120 : 60;
+            // a chave ainda pedida (ultimos 30 s) e consultada ha mais tempo
+            std::string ch;
+            {
+                std::lock_guard<std::mutex> lk(e->m);
+                double melhor = 1e18;
+                for (const auto& [k, tp] : e->ultPedido) {
+                    if (agora - tp > 30) continue;
+                    const auto it = e->ultConsulta.find(k);
+                    const double tc = it == e->ultConsulta.end() ? -1e9 : it->second;
+                    if (agora - tc < intervalo) continue;
+                    if (tc < melhor) { melhor = tc; ch = k; }
+                }
+            }
+            if (ch.size() < 5) continue;
+            const std::string tipo = ch.substr(0, ch.find(':')), val = ch.substr(ch.find(':') + 1);
+            std::string hexMin = val;
+            for (auto& c : hexMin) c = (char)std::tolower((unsigned char)c);
+            double ptLa = 0, ptLo = 0;
+            std::string ptVoo;
+            if (tipo == "pt" && !lerPt(val, ptLa, ptLo, ptVoo)) continue;
+            char ptTxt[64] = {};
+            std::snprintf(ptTxt, sizeof ptTxt, "%.2f/%.2f", ptLa, ptLo);
+            const std::string pto = ptTxt;
+            {
+                std::lock_guard<std::mutex> lk(e->m);
+                e->ultConsulta[ch] = agora;
+            }
+            proxima = agora + 2;
+            Pos p;
+            bool respondeu = false;
+            // 1) ADS-B Exchange (RapidAPI) - so com a chave do usuario
+            if (usarX) {
+                const char* host = "adsbexchange-com1.p.rapidapi.com";
+                std::string url = std::string("https://") + host + "/v2/";
+                if (tipo == "pt") {                         // 150 milhas nauticas em volta do ponto
+                    std::string la = pto.substr(0, pto.find('/')), lo = pto.substr(pto.find('/') + 1);
+                    url += "lat/" + la + "/lon/" + lo + "/dist/150/";
+                } else
+                    url += tipo == "hex" ? "hex/" + hexMin + "/" : tipo == "reg" ? "registration/" + val + "/" : "callsign/" + val + "/";
+                std::string corpo;
+                const int st = baixar(url, corpo, "X-RapidAPI-Key: " + chaveX + "\r\nX-RapidAPI-Host: " + host + "\r\n");
+                std::lock_guard<std::mutex> lk(e->m);
+                if (e->chaveX != chaveX) continue;                 // trocaram a chave no meio
+                if (st == 200) {
+                    p = ler(corpo, agora, "ADS-B Exchange", ch);
+                    respondeu = true;
+                    ++e->consultasX;
+                    e->sitX = "ADS-B Exchange: " + std::to_string(e->consultasX) + " consulta(s)";
+                } else if (st == 401 || st == 403) {
+                    e->xRecusada = true;
+                    e->sitX = "ADS-B Exchange recusou a chave (HTTP " + std::to_string(st) + "): confira a chave e a assinatura";
+                } else if (st == 429) {
+                    e->pausaX = agora + 600;
+                    e->sitX = "ADS-B Exchange: limite da assinatura (HTTP 429) - tenta de novo em 10 min";
+                } else {
+                    e->pausaX = agora + 120;
+                    e->sitX = st ? "ADS-B Exchange: HTTP " + std::to_string(st) + " - tenta de novo em 2 min"
+                                 : "ADS-B Exchange sem resposta (tenta de novo em 2 min)";
+                }
+            }
+            // 2) adsb.lol (aberto, gratis): sem chave, ou quando o ADS-B Exchange nao achou / nao respondeu
+            if (!p.achou && usarLol) {
+                std::string url = "https://api.adsb.lol/v2/";
+                url += tipo == "pt" ? "point/" + pto + "/150" : tipo == "hex" ? "hex/" + hexMin : tipo == "reg" ? "reg/" + val : "callsign/" + val;
+                std::string corpo;
+                const int st = baixar(url, corpo);
+                std::lock_guard<std::mutex> lk(e->m);
+                if (st == 0 || st == 429 || st >= 500) {
+                    e->situacao = st ? "adsb.lol ocupado (HTTP " + std::to_string(st) + ") - tenta de novo em 2 min"
+                                     : "adsb.lol sem resposta (tenta de novo em 2 min)";
+                    e->pausaLol = agora + 120;
+                } else if (st != 200) {
+                    e->situacao = "adsb.lol recusou (HTTP " + std::to_string(st) + ") - tenta de novo em 30 min";
+                    e->pausaLol = agora + 1800;
+                } else {
+                    p = ler(corpo, agora, "adsb.lol", ch);
+                    respondeu = true;
+                    ++e->consultas;
+                    e->situacao = "adsb.lol: " + std::to_string(e->consultas) + " consulta(s)";
+                }
+            }
+            if (respondeu) {
+                std::lock_guard<std::mutex> lk(e->m);
+                e->res[ch] = p;
+            }
+        }
+    }).detach();
+}
+
+void ConsultaPosicao::chaveAdsbx(const std::string& chave)
+{
+    std::string k;
+    for (char c : chave) if (!std::isspace((unsigned char)c)) k += c;
+    if (!e_) comecar();
+    std::lock_guard<std::mutex> lk(e_->m);
+    if (k == e_->chaveX) return;
+    e_->chaveX = k;
+    e_->xRecusada = false;
+    e_->pausaX = 0;
+    e_->consultasX = 0;
+    e_->sitX = k.empty() ? "" : "ADS-B Exchange: chave pronta";
+    e_->ultConsulta.clear();                 // com a chave nova, consulta todos de novo
+}
+
+void ConsultaPosicao::pedir(const std::string& chave)
+{
+    if (!e_) comecar();
+    std::lock_guard<std::mutex> lk(e_->m);
+    e_->ultPedido[chave] = relogioS();
+}
+
+bool ConsultaPosicao::pegar(const std::string& chave, Pos& p)
+{
+    if (!e_) return false;
+    std::lock_guard<std::mutex> lk(e_->m);
+    const auto it = e_->res.find(chave);
+    if (it == e_->res.end()) return false;
+    p = it->second;
+    return true;
+}
+
+std::string ConsultaPosicao::situacao()
+{
+    if (!e_) return "adsb.lol";
+    std::lock_guard<std::mutex> lk(e_->m);
+    return e_->chaveX.empty() || e_->sitX.empty() ? e_->situacao : e_->sitX + "\n" + e_->situacao;
+}
+
+bool ConsultaPrefixo::info(const std::string& prefixo, Info& i)
+{
+    if (!e_) comecar();
+    std::lock_guard<std::mutex> lk(e_->m);
+    const auto it = e_->achados.find(chavePrefixo(prefixo));
+    if (it == e_->achados.end()) return false;
+    i = it->second;
+    return true;
 }
 
 } // namespace masdr

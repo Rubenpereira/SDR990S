@@ -257,4 +257,45 @@ ClasseAviao classificarAviao(const std::string& voo, const std::string& prefixo,
     return r;
 }
 
+std::string vooParaIcao(const std::string& vooIn, const std::string& prefixo)
+{
+    // codigo IATA (2 caracteres) -> ICAO (3 letras). LA = LATAM: TAM com matricula
+    // brasileira (PR/PP/PT/PS/PU), LAN nas outras.
+    struct Par { const char* iata; const char* icao; };
+    static const Par kIata[] = {
+        {"G3", "GLO"}, {"AD", "AZU"}, {"JJ", "TAM"}, {"2Z", "PTB"}, {"M3", "TUS"}, {"H2", "SKU"}, {"JA", "JAT"},
+        {"XL", "LNE"}, {"LP", "LPE"}, {"PZ", "LAP"}, {"OB", "BOV"}, {"Z8", "AZN"}, {"AR", "ARG"}, {"CM", "CMP"},
+        {"AV", "AVA"}, {"AM", "AMX"}, {"AA", "AAL"}, {"UA", "UAL"}, {"DL", "DAL"}, {"AC", "ACA"}, {"WS", "WJA"},
+        {"B6", "JBU"}, {"AS", "ASA"}, {"WN", "SWA"}, {"NK", "NKS"}, {"F9", "FFT"}, {"AF", "AFR"}, {"KL", "KLM"},
+        {"TP", "TAP"}, {"IB", "IBE"}, {"UX", "AEA"}, {"LH", "DLH"}, {"LX", "SWR"}, {"OS", "AUA"}, {"SN", "BEL"},
+        {"BA", "BAW"}, {"AZ", "ITY"}, {"LO", "LOT"}, {"SK", "SAS"}, {"AY", "FIN"}, {"A3", "AEE"}, {"EK", "UAE"},
+        {"QR", "QTR"}, {"EY", "ETD"}, {"TK", "THY"}, {"ET", "ETH"}, {"AT", "RAM"}, {"MS", "MSR"}, {"SA", "SAA"},
+        {"DT", "DTA"}, {"KE", "KAL"}, {"NH", "ANA"}, {"JL", "JAL"}, {"CX", "CPA"}, {"SQ", "SIA"}, {"CA", "CCA"},
+        {"MU", "CES"}, {"CZ", "CSN"}, {"QF", "QFA"}, {"NZ", "ANZ"}, {"FX", "FDX"}, {"5X", "UPS"}, {"5Y", "GTI"},
+        {"CV", "CLX"}, {"QT", "TPA"}, {"QY", "BCS"}, {"ES", "DHX"},
+    };
+    std::string voo;
+    for (char c : vooIn) if (!std::isspace((unsigned char)c)) voo += (char)std::toupper((unsigned char)c);
+    if (voo.size() < 3) return {};
+    // ja e ICAO (3 letras + numero): fica como esta
+    if (voo.size() > 3 && std::isalpha((unsigned char)voo[0]) && std::isalpha((unsigned char)voo[1]) &&
+        std::isalpha((unsigned char)voo[2]) && std::isdigit((unsigned char)voo[3]))
+        return {};
+    // IATA: 2 caracteres + 1 a 4 digitos (+ uma letra opcional)
+    size_t i = 2, n = 0;
+    while (i < voo.size() && std::isdigit((unsigned char)voo[i])) { ++i; ++n; }
+    if (n < 1 || n > 4) return {};
+    if (i < voo.size() && !(i + 1 == voo.size() && std::isalpha((unsigned char)voo[i]))) return {};
+    const std::string cod = voo.substr(0, 2);
+    std::string num = voo.substr(2);
+    while (num.size() > 1 && num[0] == '0') num.erase(0, 1);
+    std::string p = maiusculas(prefixo);
+    if (!p.empty() && p[0] == '.') p.erase(0, 1);
+    const bool br = p.size() >= 2 && p[0] == 'P' && (p[1] == 'R' || p[1] == 'P' || p[1] == 'T' || p[1] == 'S' || p[1] == 'U');
+    if (cod == "LA") return (br ? "TAM" : "LAN") + num;
+    for (const auto& x : kIata)
+        if (cod == x.iata) return x.icao + num;
+    return {};
+}
+
 } // namespace masdr

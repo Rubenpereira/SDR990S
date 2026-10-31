@@ -50,6 +50,7 @@ public:
     void salvarEstado();      // grava sliders/sintonia no RXSDR.ini
     void prepararSaida() { devolverModo(); }   // fechando: o radio volta ao modo de antes do decoder
     bool querSair() const { return sair_; }
+    struct RadarEstado;       // RADAR AEREO (Radar.cpp)
 
 private:
     // --- partes da tela ---
@@ -82,6 +83,16 @@ private:
     void sintonizarDecoder(int tipo);
     void tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs);
     void tabelaAdsb(const std::vector<AdsbCore::Aviao>& avs);
+    // RADAR AEREO (Radar.cpp): tela cheia com os avioes do ADSB / ACARS / VDL2 / HFDL
+    void abrirRadar();
+    void fecharRadar(bool pararDecoder);   // pararDecoder: fecha tambem a janela e o decodificador
+    void telaRadar();
+    void salvarRadar();
+    void radarDrenarTexto();
+    void botaoRadar();
+    void radarPedido(const std::string& linha);
+    std::shared_ptr<RadarEstado> radar_;
+    bool radarAberto_ = false;
     // squelch automatico (clique no SQL)
     bool sqlMedindo_ = false;
     double sqlIni_ = 0, sqlUlt_ = 0;

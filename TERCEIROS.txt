@@ -27,8 +27,16 @@ libsgp4 (orbitas, decodificador Satelites)
                                Apache 2.0        https://github.com/dnwrnr/sgp4
    (c) 2013 Daniel Warner. Commit c6ebb90, sem mudancas (so o CsvTleLoader
    ficou de fora). Licenca completa em third_party/sgp4/LICENSE.txt.
-Natural Earth 1:110m (contorno do mapa-mundi)
+Natural Earth 1:110m (contorno do mapa-mundi) e 1:50m (mapa do Radar Aereo:
+   costa, fronteiras e divisas de estados)
                                dominio publico   https://www.naturalearthdata.com
+adsb.lol (posicao pela internet no Radar Aereo, consulta a API publica e gratuita)
+                               rede aberta de receptores ADS-B   https://adsb.lol
+ADS-B Exchange (OPCIONAL no Radar Aereo: so com a chave da API do proprio usuario,
+   assinatura paga no RapidAPI; o SDR990S nao traz chave nem redistribui os dados)
+                               https://www.adsbexchange.com
+OurAirports (aeroportos grandes e medios do Radar Aereo)
+                               dominio publico   https://ourairports.com/data/
 Elementos orbitais (satelites.tle)
                                baixados da Celestrak (celestrak.org), dados publicos
 
@@ -37,6 +45,9 @@ AO LADO DO SDR990S.exe
 rtl-sdr (rtlsdr.dll, librtlsdr.dll)
                                GPL-2.0           https://github.com/osmocom/rtl-sdr
 libusb (libusb-1.0.dll)        LGPL-2.1          https://github.com/libusb/libusb
+Microsoft Visual C++ runtime (msvcr100.dll do pthreadVC2.dll, vcruntime140.dll do rtlsdr.dll),
+   64 bits                     arquivos redistribuiveis da Microsoft (Visual C++ 2010 e 2015-2022);
+   vao junto para o rtl-sdr abrir num Windows sem o "Visual C++ Redistributable" instalado.
 pthreads-win32 (pthreadVC2.dll)
                                LGPL-2.1          https://sourceware.org/pthreads-win32/
 

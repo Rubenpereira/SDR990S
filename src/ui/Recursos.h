@@ -6,6 +6,6 @@
 
 // A versao do programa: mude AQUI (e no CMakeLists.txt). O rxsdr.rc (as
 // propriedades do SDR990S.exe) e o GERAR_PACOTE.bat leem daqui.
-#define RXSDR_VERSAO     "1.2.5"
-#define RXSDR_VERSAO_W   L"1.2.5"
-#define RXSDR_VERSAO_RC  1,2,5,0
+#define RXSDR_VERSAO     "1.2.6"
+#define RXSDR_VERSAO_W   L"1.2.6"
+#define RXSDR_VERSAO_RC  1,2,6,0

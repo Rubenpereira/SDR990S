@@ -29,5 +29,8 @@ ClasseAviao classificarAviao(const std::string& voo, const std::string& prefixo,
                              const std::string& operadorIcao, const std::string& dono, int categoria);
 std::string nomeCategoriaAdsb(int categoria);   // "jato grande", "helicoptero"... ("" se nao sabe)
 const char* nomeCompanhia(const std::string& codigoIcao);   // nullptr se nao conhece
+// O ACARS / VDL2 / HFDL trazem o voo com o codigo IATA da companhia (G31017 = GOL 1017):
+// devolve o indicativo ICAO (GLO1017) ou "" se nao sabe converter.
+std::string vooParaIcao(const std::string& voo, const std::string& prefixo);
 
 } // namespace masdr

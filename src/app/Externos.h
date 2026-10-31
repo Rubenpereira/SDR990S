@@ -76,12 +76,23 @@ struct EstadoExterno {
 // Aviao ouvido no HFDL (para a tabela com os links do FlightAware)
 struct AeronaveHfdl {
     std::string voo, prefixo, hex;     // voo ja normalizado (TAM0803 -> TAM803), prefixo sem os pontos
+    bool vooCortado = false;           // HFDL: o Flight ID tem so 6 caracteres (AZU2482 chega como AZU248)
     double lat = 91, lon = 181;
+    double posVisto = 0;               // quando veio a posicao (o RADAR AEREO usa)
+    int altPes = -2147483647 - 1;      // altitude em pes, quando a mensagem traz (INT_MIN = nao veio)
     double freqKHz = 0;
     int msgs = 0;
     double visto = 0;
     std::string urlVoo() const;        // mesmo endereco do FaLink da pagina
     std::string urlPrefixo() const;
+};
+
+// Estacao de terra do HFDL que TRANSMITIU (squitter, uplink: "Src GS: Santa Cruz, Bolivia")
+struct EstacaoHfdl {
+    std::string nome;                  // o nome da tabela do dumphfdl (hfdl_systable.conf)
+    double freqKHz = 0, snrDb = -99;   // da ultima transmissao ouvida
+    int msgs = 0;
+    double visto = 0;
 };
 
 class Hfdl {
@@ -94,13 +105,15 @@ public:
     EstadoExterno estado();
     bool foraDaBanda() const { return fora_.load(); }
     std::vector<AeronaveHfdl> aeronaves();
-    void limparLista() { std::lock_guard<std::mutex> lk(m_); avioes_.clear(); }
+    void limparLista() { std::lock_guard<std::mutex> lk(m_); avioes_.clear(); estacoes_.clear(); }
+    std::vector<EstacaoHfdl> estacoes();          // as estacoes de terra ouvidas (o RADAR AEREO desenha)
     std::function<void(const std::string&)> aoTexto;
 private:
     void linha(const std::string& l);
     void processarBloco();
     std::string bloco_;
     std::map<std::string, AeronaveHfdl> avioes_;
+    std::map<std::string, EstacaoHfdl> estacoes_;   // pelo nome
     std::map<std::string, std::string> hexConhecido_;   // "V"+voo / "R"+prefixo -> codigo ICAO
     Externo ext_;
     std::mutex m_;

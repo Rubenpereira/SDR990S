@@ -298,6 +298,7 @@ void Ui::salvarEstado()
     c.set("esp_frac", (double)espFrac_);
     c.set("if_on", ifOn_);
     c.set("if_larg", ifTam_);
+    salvarRadar();
     if (memSujo_) salvarMemorias();
     salvarPainel();
     c.salvar();
@@ -335,10 +336,12 @@ void Ui::lerPedidoTeste()
         else if (l.rfind("satsint ", 0) == 0) sintonizarSat(std::atoi(l.c_str() + 8));
         else if (l == "main") ativar(0);
         else if (l == "sub") ativar(1);
+        else if (l.rfind("radar", 0) == 0) radarPedido(l);   // radar, radar_centro GG87jb, radar_alcance 150...
         else if (l.rfind("decoder ", 0) == 0) {
             const std::string n = l.substr(8);
             const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : n == "SAT" ? Decoders::SATELITES :
-                          n == "ADSB" ? Decoders::ADSB : Decoders::NENHUM;
+                          n == "ADSB" ? Decoders::ADSB : n == "ACARS" ? Decoders::ACARS : n == "VDL2" ? Decoders::VDL2 :
+                          n == "HFDL" ? Decoders::HFDL : Decoders::NENHUM;
             decAberta_ = t != Decoders::NENHUM;
             escolherDecoder(t, true);
         }
@@ -430,10 +433,11 @@ void Ui::quadro()
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), C_BG_DEEP);
 
     (void)W; (void)H;
-    painel();                                   // o radio inteiro (Painel.cpp)
+    if (radarAberto_) telaRadar();              // RADAR AEREO: a tela inteira (Radar.cpp)
+    else painel();                              // o radio inteiro (Painel.cpp)
 
     // teclado: setas sintonizam um passo
-    if (!io.WantTextInput && !ImGui::IsAnyItemActive()) {
+    if (!radarAberto_ && !io.WantTextInput && !ImGui::IsAnyItemActive()) {
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) sintonizar(r_.vfo() + passo_, false);
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && r_.vfo() > (uint64_t)passo_) sintonizar(r_.vfo() - passo_, false);
         // para cima / para baixo: exatamente 1 MHz
@@ -443,10 +447,14 @@ void Ui::quadro()
 
     ImGui::End();
 
-    if (cfgAberta_) janelaConfig();
-    if (sobreAberta_) janelaSobre();
-    if (memAberta_) janelaMemorias();
-    if (decAberta_) janelaDecoders();
+    if (radarAberto_) {
+        radarDrenarTexto();                     // o radar cobre tudo: o texto dos decodificadores continua chegando
+    } else {
+        if (cfgAberta_) janelaConfig();
+        if (sobreAberta_) janelaSobre();
+        if (memAberta_) janelaMemorias();
+        if (decAberta_) janelaDecoders();
+    }
 
     // Primeira abertura (sem "lang" no RXSDR.ini): pergunta o idioma uma vez,
     // como a versao de navegador. Depois troca-se pelo "PT/EN" do topo.
@@ -3684,12 +3692,12 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
 // Tabela de avioes com os links do FlightAware (ACARS e VDL2; igual a do HFDL)
 void Ui::tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs)
 {
-    if (avs.empty() || !ImGui::BeginTable(id, 6, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
+    if (avs.empty() || !ImGui::BeginTable(id, 7, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
                                           ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
                                           ImVec2(0, 130 * s_)))
         return;
     ImGui::TableSetupScrollFreeze(0, 1);
-    for (const char* c : {T("Voo"), T("Prefixo"), "ICAO", T("Canal"), "Msgs", T("Visto")}) ImGui::TableSetupColumn(c);
+    for (const char* c : {T("Voo"), T("Prefixo"), "ICAO", T("Posição"), T("Canal"), "Msgs", T("Visto")}) ImGui::TableSetupColumn(c);
     ImGui::TableHeadersRow();
     const double ta = agoraS();
     auto abrir = [](const std::string& url) { ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL); };
@@ -3700,7 +3708,7 @@ void Ui::tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs)
         ImGui::TableSetColumnIndex(0);
         if (a.voo.empty()) ImGui::TextUnformatted("-");
         else {
-            if (ImGui::TextLink(a.voo.c_str())) abrir(a.urlVoo());
+            if (ImGui::TextLink((a.voo + (a.vooCortado ? "?" : "")).c_str())) abrir(a.urlVoo());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o voo no FlightAware\n%s"), a.urlVoo().c_str());
         }
         ImGui::TableSetColumnIndex(1);
@@ -3709,11 +3717,21 @@ void Ui::tabelaAvioes(const char* id, const std::vector<AeronaveHfdl>& avs)
             if (ImGui::TextLink(a.prefixo.c_str())) abrir(a.urlPrefixo());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o avião no FlightAware\n%s"), a.urlPrefixo().c_str());
         }
-        ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(a.hex.empty() ? "-" : a.hex.c_str());
+        ImGui::TableSetColumnIndex(2);
+        if (a.hex.empty()) ImGui::TextDisabled("Unknown"); else ImGui::TextUnformatted(a.hex.c_str());
         ImGui::TableSetColumnIndex(3);
+        if (a.lat <= 90) {
+            // posicao achada no texto de uma mensagem (relatorio de posicao): abre no Google Maps
+            char p[48], url[128];
+            std::snprintf(p, sizeof p, "%.4f, %.4f", a.lat, a.lon);
+            std::snprintf(url, sizeof url, "https://www.google.com/maps/search/?api=1&query=%.5f,%.5f", a.lat, a.lon);
+            if (ImGui::TextLink(p)) abrir(url);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir a posição no Google Maps"));
+        } else ImGui::TextUnformatted("-");
+        ImGui::TableSetColumnIndex(4);
         if (a.freqKHz > 0) ImGui::Text("%.3f", a.freqKHz / 1000.0); else ImGui::TextUnformatted("-");
-        ImGui::TableSetColumnIndex(4); ImGui::Text("%d", a.msgs);
-        ImGui::TableSetColumnIndex(5);
+        ImGui::TableSetColumnIndex(5); ImGui::Text("%d", a.msgs);
+        ImGui::TableSetColumnIndex(6);
         const double s = ta - a.visto;
         if (s < 120) ImGui::Text("%.0f s", s); else if (s < 7200) ImGui::Text("%.0f min", s / 60); else ImGui::Text("%.1f h", s / 3600);
         ImGui::PopID();
@@ -3828,8 +3846,14 @@ void Ui::tabelaAdsb(const std::vector<AdsbCore::Aviao>& avs)
 // Texto novo na janela: quebra as linhas compridas (o SITOR-B e o RTTY
 // mandam texto corrido). E um registro: so o botao Limpar apaga; para nao
 // pesar, acima de ~1 MB (umas 15 mil linhas) sai o comeco.
-void Ui::anexarDecTexto(const std::string& novo)
+void Ui::anexarDecTexto(const std::string& entrada)
 {
+    // Caminho completo da pasta do programa nao aparece na janela (nem no radar e
+    // no "Salvar .txt"): ele mostra o nome do usuario do Windows numa foto da tela.
+    // "C:\\Users\\Fulano\\SDR990S\\decoders\\x.conf" vira "decoders\\x.conf".
+    static const std::string base = pastaDoExe() + "\\";
+    std::string novo = entrada;
+    for (size_t p = novo.find(base); p != std::string::npos; p = novo.find(base, p)) novo.erase(p, base.size());
     const int kColunas = 100;
     for (char c : novo) {
         if (c == '\r') continue;
@@ -4576,12 +4600,15 @@ void Ui::janelaDecoders()
     ImGui::SetNextItemWidth(200 * s_);
     if (ImGui::BeginCombo("##dectipo", Decoders::nome((Decoders::Tipo)decTipo_), ImGuiComboFlags_HeightLarge)) {
         static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::FT8, Decoders::FT4, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
-                                     Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::HFDL, Decoders::AIS,
-                                     Decoders::APRS, Decoders::ACARS, Decoders::VDL2, Decoders::ADSB, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
+                                     Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::AIS,
+                                     Decoders::APRS, Decoders::HFDL, Decoders::ACARS, Decoders::VDL2, Decoders::ADSB, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
                                      Decoders::OLIVIA, Decoders::STANAG, Decoders::BPSK, Decoders::SATELITES, Decoders::ANALISE};
         static_assert(sizeof kOrdem / sizeof kOrdem[0] == Decoders::N_TIPOS, "faltou um decodificador no menu");
         for (int i : kOrdem)
             if (ImGui::Selectable(Decoders::nome((Decoders::Tipo)i), decTipo_ == i)) escolherDecoder(i, true);
+        ImGui::Separator();
+        // a tela de radar usa os decodificadores de aviacao (liga o ADSB se nenhum estiver rodando)
+        if (ImGui::Selectable(T("RADAR AÉREO  (ADSB / ACARS / VDL2 / HFDL)"), false)) abrirRadar();
         ImGui::EndCombo();
     }
     ImGui::SameLine();
@@ -4932,6 +4959,7 @@ void Ui::janelaDecoders()
         }
         ImGui::TextDisabled(T("O rádio vai para o centro da banda (em USB) e o dumphfdl acompanha todos os canais "
                             "de uma vez. Não mexa na sintonia enquanto ouve."));
+        botaoRadar();
         // Os avioes ouvidos, com o voo e o prefixo ligados ao FlightAware (igual a pagina)
         const auto avs = d.hfdl().aeronaves();
         if (!avs.empty() && ImGui::BeginTable("##avioes", 7, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
@@ -4949,7 +4977,7 @@ void Ui::janelaDecoders()
                 ImGui::TableSetColumnIndex(0);
                 if (a.voo.empty()) ImGui::TextUnformatted("-");
                 else {
-                    if (ImGui::TextLink(a.voo.c_str())) abrir(a.urlVoo());
+                    if (ImGui::TextLink((a.voo + (a.vooCortado ? "?" : "")).c_str())) abrir(a.urlVoo());
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o voo no FlightAware\n%s"), a.urlVoo().c_str());
                 }
                 ImGui::TableSetColumnIndex(1);
@@ -4958,7 +4986,8 @@ void Ui::janelaDecoders()
                     if (ImGui::TextLink(a.prefixo.c_str())) abrir(a.urlPrefixo());
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Abrir o avião no FlightAware\n%s"), a.urlPrefixo().c_str());
                 }
-                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(a.hex.empty() ? "-" : a.hex.c_str());
+                ImGui::TableSetColumnIndex(2);
+        if (a.hex.empty()) ImGui::TextDisabled("Unknown"); else ImGui::TextUnformatted(a.hex.c_str());
                 ImGui::TableSetColumnIndex(3);
                 if (a.lat <= 90) ImGui::Text("%.3f %.3f", a.lat, a.lon); else ImGui::TextUnformatted("-");
                 ImGui::TableSetColumnIndex(4);
@@ -5156,16 +5185,19 @@ void Ui::janelaDecoders()
         break;
     }
     case Decoders::ACARS:
+        botaoRadar();
         ImGui::TextDisabled(T("131,550 e 131,825 MHz ao mesmo tempo (AM). O rádio fica com o centro no meio dos dois;"));
         ImGui::TextDisabled(T("não mexa na sintonia enquanto ouve. Voo e prefixo abrem no FlightAware."));
         tabelaAvioes("##avacars", d.acars().aeronaves());
         break;
     case Decoders::VDL2:
+        botaoRadar();
         ImGui::TextDisabled(T("136,975 MHz (VDL modo 2, 31,5 kbit/s). O dongle passa para 1,05 Msps enquanto ouve."));
         ImGui::TextDisabled(T("Não mexa na sintonia enquanto ouve. Voo e prefixo abrem no FlightAware."));
         tabelaAvioes("##avvdl2", d.vdl2().aeronaves());
         break;
     case Decoders::ADSB: {
+        botaoRadar();
         ImGui::TextDisabled(T("1090 MHz (ADS-B / Modo S). O dongle passa para 2,4 Msps com 1090 MHz no centro; não mexa na sintonia."));
         ImGui::TextDisabled(T("Voo e prefixo abrem no FlightAware, o código ICAO no ADS-B Exchange e a posição no Google Maps."));
         if (ImGui::Checkbox(T("Buscar prefixo e modelo na internet (hexdb.io)"), &decAj_.adsbInternet))

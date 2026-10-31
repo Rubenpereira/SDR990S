@@ -48,6 +48,29 @@ bool g_perdido = false;
 WINDOWPLACEMENT g_posicao = {sizeof(WINDOWPLACEMENT)};
 bool g_temPosicao = false;
 
+// RADAR AEREO: tela cheia sem bordas (a janela cobre o monitor inteiro).
+// Guarda a posicao e o estilo de antes para voltar exatamente como estava.
+bool g_cheiaAtiva = false;
+WINDOWPLACEMENT g_antesCheia = {sizeof(WINDOWPLACEMENT)};
+LONG g_estiloAntes = 0;
+void aplicarTelaCheia(HWND h, bool cheia)
+{
+    if (cheia == g_cheiaAtiva) return;
+    if (cheia) {
+        MONITORINFO mi = {sizeof mi};
+        if (!GetWindowPlacement(h, &g_antesCheia) || !GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi)) return;
+        g_estiloAntes = GetWindowLongW(h, GWL_STYLE);
+        SetWindowLongW(h, GWL_STYLE, (g_estiloAntes & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+        SetWindowPos(h, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    } else {
+        SetWindowLongW(h, GWL_STYLE, g_estiloAntes);
+        SetWindowPlacement(h, &g_antesCheia);
+        SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+    g_cheiaAtiva = cheia;
+}
+
 bool criarD3D(HWND h)
 {
     g_d3d = Direct3DCreate9(D3D_SDK_VERSION);
@@ -102,7 +125,8 @@ LRESULT WINAPI WndProc(HWND h, UINT msg, WPARAM w, LPARAM l)
         if ((w & 0xfff0) == SC_KEYMENU) return 0;   // Alt nao abre menu
         break;
     case WM_CLOSE:
-        // guarda a posicao ANTES de a janela ser destruida
+        // guarda a posicao ANTES de a janela ser destruida (saindo da tela cheia do radar antes)
+        aplicarTelaCheia(h, false);
         g_temPosicao = GetWindowPlacement(h, &g_posicao) != 0;
         DestroyWindow(h);
         return 0;
@@ -219,7 +243,8 @@ void capturarTela()
 } // namespace
 
 namespace masdr { bool g_pedirCaptura = false; std::string g_ultimaCaptura;
-                 bool g_pedirMinimizar = false; }   // o "-" do INICIO (Ui.cpp)
+                 bool g_pedirMinimizar = false;     // o "-" do INICIO (Ui.cpp)
+int g_telaCheia = 0; }             // RADAR AEREO: 1 = a janela ocupa o monitor inteiro, sem bordas (Radar.cpp)
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int)
 {
@@ -384,6 +409,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int)
             masdr::g_pedirMinimizar = false;
             ShowWindow(hwnd, SW_MINIMIZE);
         }
+        aplicarTelaCheia(hwnd, masdr::g_telaCheia != 0);   // RADAR AEREO (so mexe quando o pedido muda)
         if (g_dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) g_perdido = true;
 
         // No maximo ~30 quadros por segundo: a tela fica fluida e sobra
