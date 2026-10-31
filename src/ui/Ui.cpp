@@ -245,6 +245,7 @@ Ui::Ui(Radio& radio, IDirect3DDevice9* dev, const Fontes& f, float escala)
     decAj_.rttyBaud = (float)c.dbl("dec_rtty_baud", 45.45);
     decAj_.rttyShift = (float)c.dbl("dec_rtty_shift", 170);
     decAj_.cwTom = (float)c.dbl("dec_cw_tom", 0);
+    decAj_.adsbInternet = c.flag("dec_adsb_internet", false);   // consulta na internet: so se o usuario ligar
     smRetorno_ = std::clamp((float)c.dbl("smeter_retorno", 0.9), 0.1f, 5.f);
     decHfdlBanda_ = std::clamp((int)c.num("dec_hfdl_banda", 5), 0, 10);
     decAprsCanal_ = std::clamp((int)c.num("dec_aprs_canal", 0), 0, 3);
@@ -293,6 +294,7 @@ void Ui::salvarEstado()
     c.set("dec_rtty_baud", (double)decAj_.rttyBaud);
     c.set("dec_rtty_shift", (double)decAj_.rttyShift);
     c.set("dec_cw_tom", (double)decAj_.cwTom);
+    c.set("dec_adsb_internet", decAj_.adsbInternet);
     c.set("dec_hfdl_banda", decHfdlBanda_);
     c.set("dec_aprs_canal", decAprsCanal_);
     c.set("esp_frac", (double)espFrac_);

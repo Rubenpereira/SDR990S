@@ -471,7 +471,7 @@ struct Ui::RadarEstado {
     ConsultaPrefixo consulta;                     // ACARS/VDL2/HFDL: prefixo -> codigo ICAO, modelo, operador
     ConsultaPosicao posNet;                       // posicao pela internet (adsb.lol) de quem foi ouvido sem posicao
     std::map<std::string, double> candDesde;      // chave da consulta -> desde quando esta sem posicao
-    bool netPos = true;
+    bool netPos = false;                          // consulta na internet: so se o usuario ligar
     char chaveX[128] = {};                        // chave do ADS-B Exchange (RapidAPI, assinatura paga do usuario)
     // estacoes de terra do HFDL: a tabela do dumphfdl (posicao de cada uma) e as que transmitiram
     struct TerraTab { int id = -1; double lat = 91, lon = 181; std::string nome, freqs; };
@@ -529,7 +529,7 @@ void carregarCfg(Radar& R)
     R.paineis = c.flag("radar_paineis", true);
     R.cor = (int)std::clamp(c.num("radar_cor", 0), 0LL, 1LL);
     R.simbolo = (int)std::clamp(c.num("radar_simbolo", 0), 0LL, 1LL);
-    R.netPos = c.flag("radar_netpos", true);
+    R.netPos = c.flag("radar_netpos", false);
     std::snprintf(R.chaveX, sizeof R.chaveX, "%s", c.str("radar_adsbx_chave").c_str());
     R.vLat = R.qLat; R.vLon = R.qLon;
     R.carregado = true;

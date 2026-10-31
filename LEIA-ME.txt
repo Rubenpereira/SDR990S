@@ -183,7 +183,8 @@ ADSB (DATA ou PF A > Decodificador > ADSB)
    prefixo abrem no FlightAware (igual ao ACARS), o codigo ICAO abre o
    aviao no mapa do ADS-B Exchange e a posicao abre no Google Maps.
  - O ADS-B so traz o codigo ICAO: o prefixo (PR-..., PP-...) e o modelo vem
-   do hexdb.io pela internet (pode desligar na caixinha). Cada aviao e
+   do hexdb.io pela internet - vem DESLIGADO: ligue na caixinha "Buscar
+   prefixo e modelo na internet (hexdb.io)". Cada aviao e
    consultado uma vez e fica guardado em adsb_prefixos.txt, ao lado do
    programa. Os dos EUA (N...) sao calculados sem internet.
  - A coluna Empresa mostra a companhia aerea (pelo codigo do voo: GLO = GOL,
@@ -215,8 +216,8 @@ ADSB, ACARS, VDL2 e HFDL)
  - Aviao que o radio ouviu SEM posicao (ACARS/VDL2/HFDL sem relatorio de
    posicao, Modo S sem ADS-B): o radar pega a posicao na rede aberta
    adsb.lol pela internet. Esses aparecem SO EM CONTORNO, azul-claro, com
-   [NET] na etiqueta - a posicao nao foi o seu receptor. Desliga na caixinha
-   "Posicao pela internet (adsb.lol)".
+   [NET] na etiqueta - a posicao nao foi o seu receptor. Vem DESLIGADO:
+   ligue na caixinha "Posicao pela internet (adsb.lol)" do radar.
  - OPCIONAL: chave do ADS-B Exchange (campo embaixo da caixinha). O ADS-B
    Exchange e PAGO: cada um assina um plano da API no RapidAPI
    (rapidapi.com/adsbx/api/adsbexchange-com1) e cola a propria chave. Com a

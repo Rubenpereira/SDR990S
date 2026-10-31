@@ -74,7 +74,7 @@ public:
         int   stanagVel = 600;            // 75, 150, 300, 600 ou 1200 bps (Anexo A)
         bool  stanagLongo = true;         // o entrelacador longo (j=12/24) ou curto
         int   bpskModo = 0;               // indice em BpskCore::nomeModo (BPSK31...)
-        bool  adsbInternet = true;        // ADSB: buscar prefixo/modelo no hexdb.io
+        bool  adsbInternet = false;       // ADSB: buscar prefixo/modelo no hexdb.io (desligado: so com o usuario ligando)
     };
 
     Decoders();
