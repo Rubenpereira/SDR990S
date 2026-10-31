@@ -4,6 +4,12 @@ Receptor SDR para Windows com a cara de um transceptor de HF de mesa: tela princ
 
 ![SDR990S](SDR990S.png)
 
+## Radar Aéreo
+
+[![Radar Aéreo do SDR990S - clique para ver o vídeo](Radar.gif)](Radar.mp4)
+
+Tela de radar em tela cheia, com a agulha girando 360°, que mostra os aviões que o dongle está ouvindo pelo **ADSB, ACARS, VDL2 e HFDL**. Mostra também as estações de terra do HFDL que transmitiram e a posição pela internet (adsb.lol) de quem foi ouvido sem posição. O alcance vai de 10 km até o planeta inteiro. *Clique na animação para ver o vídeo.*
+
 ## Download
 
 Baixe o `.zip` em **[Releases](https://github.com/Rubenpereira/SDR990S/releases)**, descompacte onde quiser e rode o `SDR990S.exe`.
