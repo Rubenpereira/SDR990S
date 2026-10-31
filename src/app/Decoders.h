@@ -34,6 +34,7 @@
 #include "../decoders/AdsbCore.h"
 #include "../decoders/AdsbEmpresas.h"
 #include "AdsbInternet.h"
+#include "AdsbRede.h"
 
 namespace masdr {
 
@@ -140,6 +141,16 @@ public:
     Acars& acars() { return acars_; }
     Vdl2& vdl2() { return vdl2_; }
     AdsbCore& adsb() { return adsb_; }
+    // ADS-B de outro receptor da rede (Beast). Chamado a cada quadro: so muda quando algo muda.
+    AdsbRede& adsbRede() { return adsbRede_; }
+    void manterAdsbRede(bool ligar, const std::string& host, int porta, bool internet) {
+        adsbRede_.manter(ligar, host, porta);
+        const bool h = adsbRede_.ligado() && internet;
+        if (h != hexdbRedeLigado_) {
+            hexdbRedeLigado_ = h;
+            if (h) hexdbRede_.iniciar(&adsbRede_.core()); else hexdbRede_.parar();
+        }
+    }
     std::string adsbInternet() const { return hexdb_.situacao(); }
     Drm& drm() { return drm_; }
     SstvCore& sstv() { return sstv_; }
@@ -210,6 +221,9 @@ private:
     BpskCore bpsk_;      // PSK31/63/125/250, QPSK e os FEC "R" (BPSK63F/125F)
     AdsbCore adsb_;      // ADS-B / Modo S (1090 MHz), direto do IQ
     ConsultaHexdb hexdb_; // ADSB: prefixo e modelo de cada aviao (hexdb.io)
+    AdsbRede adsbRede_;         // ADS-B de outro receptor da rede (Beast, porta 30005)
+    ConsultaHexdb hexdbRede_;   // prefixo e modelo dos avioes da rede (depois do adsbRede_: sai antes)
+    bool hexdbRedeLigado_ = false;
     std::unique_ptr<CwCore> cw_;
     std::unique_ptr<RttyCore> rtty_;
     std::unique_ptr<SitorBCore> sitor_;

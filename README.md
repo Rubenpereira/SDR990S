@@ -19,6 +19,7 @@ Baixe o `.zip` em **[Releases](https://github.com/Rubenpereira/SDR990S/releases)
 ## O que tem
 
 - **Aparelhos:** RTL-SDR (USB), RTL-TCP (rede) e SDRplay (com a [API oficial](https://www.sdrplay.com/api/)).
+- **ADS-B pela rede:** o Radar Aéreo também mostra os aviões de outro receptor da sua rede (FlightAware/PiAware, dump1090, readsb, FR24...) pela porta Beast 30005. O SDR990S só lê, e o dongle fica livre.
 - **Modos:** LSB, USB, CW, AM, FM estreito e FM largo.
 - **Cada botão faz a função do rádio.** Os de transmissão, que num receptor não servem, ganharam funções de recepção. Pare o mouse em cima de qualquer botão: a dica diz o que ele faz.
 - **Filtros:** HI/LO-CUT, SHIFT/WIDTH do CW e filtros A/B/C por modo.
@@ -45,7 +46,7 @@ Uso livre e **não comercial**, mantendo o crédito ao autor. Veja o [LICENSE.tx
 
 ## Privacidade / Privacy
 
-This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. It connects to the RTL-TCP server the user configures, and opens web links (for example aprs.fi or FlightAware) only when the user clicks them.
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. It connects to the RTL-TCP server the user configures (and, if the user turns it on, to the ADS-B receiver on the local network that the user types in Configuration), and opens web links (for example aprs.fi or FlightAware) only when the user clicks them.
 
 Online lookups are **off by default**. They run only after the user turns them on, and the choice is saved in `SDR990S.ini`:
 
@@ -54,7 +55,7 @@ Online lookups are **off by default**. They run only after the user turns them o
 
 The satellite tracker downloads public orbital elements (TLE) from Celestrak when the user opens it and the local file is missing or more than a day old, or when the user clicks "Update TLE". Nothing about the user is sent.
 
-*Este programa não envia nenhuma informação para outros computadores, a não ser quando o próprio usuário pede. Ele se conecta ao servidor RTL-TCP que o usuário configurar e só abre links da internet quando o usuário clica neles.*
+*Este programa não envia nenhuma informação para outros computadores, a não ser quando o próprio usuário pede. Ele se conecta ao servidor RTL-TCP que o usuário configurar (e, se o usuário ligar, ao receptor de ADS-B da rede local que ele digitar na Configuração) e só abre links da internet quando o usuário clica neles.*
 
 *As consultas pela internet vêm **desligadas**. Só funcionam depois que o usuário liga, e a escolha fica guardada no `SDR990S.ini`:*
 

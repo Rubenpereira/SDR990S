@@ -246,6 +246,10 @@ Ui::Ui(Radio& radio, IDirect3DDevice9* dev, const Fontes& f, float escala)
     decAj_.rttyShift = (float)c.dbl("dec_rtty_shift", 170);
     decAj_.cwTom = (float)c.dbl("dec_cw_tom", 0);
     decAj_.adsbInternet = c.flag("dec_adsb_internet", false);   // consulta na internet: so se o usuario ligar
+    adsbRede_ = c.flag("adsb_rede", false);
+    std::snprintf(adsbRedeHost_, sizeof adsbRedeHost_, "%s", c.str("adsb_rede_host").c_str());
+    adsbRedePorta_ = (int)std::clamp(c.num("adsb_rede_porta", 30005), 1LL, 65535LL);
+    adsbRedeAlvo_ = adsbRedeHost_; adsbRedeAlvoPorta_ = adsbRedePorta_;
     smRetorno_ = std::clamp((float)c.dbl("smeter_retorno", 0.9), 0.1f, 5.f);
     decHfdlBanda_ = std::clamp((int)c.num("dec_hfdl_banda", 5), 0, 10);
     decAprsCanal_ = std::clamp((int)c.num("dec_aprs_canal", 0), 0, 3);
@@ -295,6 +299,9 @@ void Ui::salvarEstado()
     c.set("dec_rtty_shift", (double)decAj_.rttyShift);
     c.set("dec_cw_tom", (double)decAj_.cwTom);
     c.set("dec_adsb_internet", decAj_.adsbInternet);
+    c.set("adsb_rede", adsbRede_);
+    c.set("adsb_rede_host", adsbRedeAlvo_);
+    c.set("adsb_rede_porta", adsbRedeAlvoPorta_);
     c.set("dec_hfdl_banda", decHfdlBanda_);
     c.set("dec_aprs_canal", decAprsCanal_);
     c.set("esp_frac", (double)espFrac_);
@@ -338,6 +345,13 @@ void Ui::lerPedidoTeste()
         else if (l.rfind("satsint ", 0) == 0) sintonizarSat(std::atoi(l.c_str() + 8));
         else if (l == "main") ativar(0);
         else if (l == "sub") ativar(1);
+        else if (l.rfind("adsbrede ", 0) == 0) {          // "adsbrede 192.168.0.10:30005"
+            std::snprintf(adsbRedeHost_, sizeof adsbRedeHost_, "%s", l.substr(9).c_str());
+            adsbRede_ = true; aplicarAdsbRede();
+        }
+        else if (l == "adsbrede_off") { adsbRede_ = false; aplicarAdsbRede(); }
+        else if (l == "config") abrirConfig();                  // abre a janela de configuracao (teste)
+        else if (l == "config_fechar") cfgAberta_ = false;
         else if (l.rfind("radar", 0) == 0) radarPedido(l);   // radar, radar_centro GG87jb, radar_alcance 150...
         else if (l.rfind("decoder ", 0) == 0) {
             const std::string n = l.substr(8);
@@ -350,10 +364,32 @@ void Ui::lerPedidoTeste()
     }
 }
 
+// ADS-B pela rede: o endereco digitado (aceita "192.168.0.10:30005") passa a valer
+void Ui::aplicarAdsbRede()
+{
+    std::string h = adsbRedeHost_;
+    h.erase(0, h.find_first_not_of(" \t"));
+    h.erase(h.find_last_not_of(" \t") + 1);
+    const auto dp = h.rfind(':');
+    if (dp != std::string::npos && dp > 0) {
+        const int p = std::atoi(h.c_str() + dp + 1);
+        if (p > 0 && p <= 65535) adsbRedePorta_ = p;
+        h.resize(dp);
+    }
+    std::snprintf(adsbRedeHost_, sizeof adsbRedeHost_, "%s", h.c_str());
+    adsbRedeAlvo_ = h; adsbRedeAlvoPorta_ = adsbRedePorta_;
+    auto& c = Config::instance();
+    c.set("adsb_rede", adsbRede_);
+    c.set("adsb_rede_host", adsbRedeAlvo_);
+    c.set("adsb_rede_porta", adsbRedeAlvoPorta_);
+    c.salvar();
+}
+
 void Ui::quadro()
 {
     ImGuiIO& io = ImGui::GetIO();
     lerPedidoTeste();
+    r_.decoders().manterAdsbRede(adsbRede_ && !adsbRedeAlvo_.empty(), adsbRedeAlvo_, adsbRedeAlvoPorta_, decAj_.adsbInternet);
     if (!r_.aoVivo()) { centroMostrado_ = r_.centro(); taxaMostrada_ = r_.taxa(); }
     const double t = agoraS();
     // O que se desenha fica centrado em centroVisual_. Normalmente e o centro
@@ -2069,6 +2105,31 @@ void Ui::janelaConfig()
         rot("LNA (0-9)"); ImGui::SliderInt("##lna", &cfgLna_, 0, 9);
         rot(T("Ganho FI (dB)")); ImGui::SliderInt("##ifg", &cfgIfGain_, 20, 59);
         rot(T("AGC da FI")); ImGui::Checkbox("##ifagc", &cfgIfAgc_);
+    }
+    ImGui::SeparatorText(T("ADS-B pela rede (outro receptor)"));
+    {
+        bool mudou = false;
+        if (ImGui::Checkbox((std::string(T("Receber pela rede interna (Feeder)")) + "##adsbrede").c_str(), &adsbRede_)) mudou = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", T("Recebe os aviões de outro receptor de ADS-B da sua rede (FlightAware/PiAware, dump1090,\n"
+                                      "readsb, FR24...) pela porta Beast, normalmente a 30005. O SDR990S só lê, como os programas\n"
+                                      "que mandam para os sites, e não muda nada no aparelho.\n"
+                                      "Os aviões aparecem no RADAR AÉREO junto com os do dongle, que fica livre para outro decodificador."));
+        rot(T("Endereço (IP)"));
+        ImGui::InputTextWithHint("##adsbhost", "192.168.0.10", adsbRedeHost_, sizeof adsbRedeHost_);
+        if (ImGui::IsItemDeactivatedAfterEdit()) mudou = true;
+        rot(T("Porta"));
+        if (ImGui::InputInt("##adsbporta", &adsbRedePorta_, 0)) adsbRedePorta_ = std::clamp(adsbRedePorta_, 1, 65535);
+        if (ImGui::IsItemDeactivatedAfterEdit()) mudou = true;
+        if (mudou) aplicarAdsbRede();
+        if (adsbRede_) {
+            auto& ar = r_.decoders().adsbRede();
+            rot("");
+            if (ar.conectado()) {
+                const auto e = ar.core().estado();
+                ImGui::TextColored(ImVec4(0.25f, 1.f, 0.6f, 1.f), T("%s  |  %.0f msg/s  |  %d aviões"), ar.situacao().c_str(), e.msgsPorS, e.avioes);
+            } else ImGui::TextDisabled("%s", adsbRedeAlvo_.empty() ? T("digite o endereço do receptor") : ar.situacao().c_str());
+        }
     }
     ImGui::SeparatorText(T("Som"));
     {
@@ -4629,7 +4690,7 @@ void Ui::janelaDecoders()
     if (ImGui::Button(T("Limpar"))) {
         decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear();
         // as tabelas de avioes sao registro: so o Limpar apaga
-        d.adsb().limparLista(); d.acars().limparLista(); d.vdl2().limparLista(); d.hfdl().limparLista();
+        d.adsb().limparLista(); d.adsbRede().core().limparLista(); d.acars().limparLista(); d.vdl2().limparLista(); d.hfdl().limparLista();
     }
     ImGui::SameLine();
     if (ImGui::Button(T("Selecionar tudo"))) decSelTudo_ = true;

@@ -585,19 +585,36 @@ void lerAlvos(Radar& R, Decoders& d, double t, bool internet)
 {
     for (auto& kv : R.alvos) kv.second.visto = false;
     R.semPos.clear();
-    for (const auto& a : d.adsb().avioes()) {
+    // o ADS-B do dongle e o de outro receptor da rede (Beast, na Configuracao): o mesmo aviao
+    // nos dois fica uma vez so, com a mensagem mais nova
+    std::vector<AdsbCore::Aviao> lstAdsb = d.adsb().avioes();
+    if (d.adsbRede().ligado()) {
+        const auto r = d.adsbRede().core().avioes();
+        lstAdsb.insert(lstAdsb.end(), r.begin(), r.end());
+    }
+    for (const auto& a : lstAdsb) {
         if (a.lat > 90) {
-            if (a.idade <= R.memoria) R.semPos.push_back(a);
+            if (a.idade <= R.memoria) {
+                bool ja = false;
+                for (auto& sp : R.semPos) if (sp.hex == a.hex) { ja = true; if (a.idade < sp.idade) sp = a; }
+                if (!ja) R.semPos.push_back(a);
+            }
             continue;
         }
         Radar::Alvo& v = R.alvos["A" + a.hex];
         if (v.chave.empty()) v.chave = "A" + a.hex;
+        if (v.visto && v.idade <= a.idade) continue;         // o outro receptor ouviu mais recente
         v.fonte = "ADS-B"; v.voo = a.voo; v.prefixo = a.prefixo; v.hex = a.hex; v.tipo = a.tipo;
         v.empresa = a.empresa; v.classe = a.classe; v.pais = a.pais; v.operador = a.operador; v.categoria = a.categoria;
         v.alt = a.altitude; v.vs = a.vertical; v.squawk = a.squawk; v.msgs = a.msgs;
         v.vel = a.velocidade; v.rumo = a.rumo; v.noChao = a.noChao;
         v.lat = a.lat; v.lon = a.lon; v.idade = a.idade; v.tLido = t; v.visto = true;
     }
+    // sem posicao num receptor, mas com posicao no outro: nao conta como "sem posicao"
+    R.semPos.erase(std::remove_if(R.semPos.begin(), R.semPos.end(), [&](const AdsbCore::Aviao& sp) {
+        const auto it = R.alvos.find("A" + sp.hex);
+        return it != R.alvos.end() && it->second.visto;
+    }), R.semPos.end());
     auto deFora = [&](const std::vector<AeronaveHfdl>& lst, const char* fonte) {
         for (const auto& a : lst) {
             if (a.lat > 90) continue;
@@ -845,7 +862,10 @@ void Ui::abrirRadar()
     }
     g_telaCheia = R.cheia ? 1 : 0;
     // o radar precisa de um decodificador de aviacao: sem nenhum, liga o ADS-B
-    if (!(decRodando_ && ehAviacao(decTipo_))) {
+    // (a nao ser que o ADS-B venha de outro receptor da rede: ai o dongle fica como esta)
+    if (!(decRodando_ && ehAviacao(decTipo_)) && adsbRede_ && !adsbRedeAlvo_.empty()) {
+        evento(R, std::string(T("Radar aberto com o ADS-B pela rede")) + " (" + adsbRedeAlvo_ + ":" + std::to_string(adsbRedeAlvoPorta_) + ")", C_ESCALA);
+    } else if (!(decRodando_ && ehAviacao(decTipo_))) {
         if (!r_.ligado()) ligarDesligar();
         decAberta_ = true;
         escolherDecoder(Decoders::ADSB, true);
@@ -949,7 +969,8 @@ void Ui::telaRadar()
     const bool adsbRodando = decRodando_ && decTipo_ == Decoders::ADSB;
     if (t - R.ultHist >= 1.0) {
         R.ultHist = t;
-        R.histMsgs.push_back(adsbRodando ? (float)d.adsb().estado().msgsPorS : 0.f);
+        R.histMsgs.push_back((adsbRodando ? (float)d.adsb().estado().msgsPorS : 0.f) +
+                             (d.adsbRede().conectado() ? (float)d.adsbRede().core().estado().msgsPorS : 0.f));
         if (R.histMsgs.size() > 120) R.histMsgs.erase(R.histMsgs.begin());
     }
     const double a0 = R.ang, varrido = dt / R.periodo * 360.0;
@@ -1391,7 +1412,7 @@ void Ui::telaRadar()
             }
         }
         if (R.seguir) textoSombra(dl, fi, 13 * s, ImVec2(caixa1.x - 12 * s, q.y + 34 * s), C_AMBAR, T("SEGUINDO O ALVO"), 1.f, 0);
-        if (!(decRodando_ && ehAviacao(decTipo_)))
+        if (!(decRodando_ && ehAviacao(decTipo_)) && !d.adsbRede().ligado())
             textoSombra(dl, fonte(18 * s), 18 * s, ImVec2(C.x, C.y + Rr * 0.45f), pisca ? C_AMBAR : comAlfa(C_AMBAR, 0.6f),
                         T("DECODIFICADOR PARADO - ligue o ADS-B no painel da esquerda"), 0.5f, 0.5f);
         else if (R.alvos.empty() && R.semPos.empty())
@@ -1527,11 +1548,15 @@ void Ui::telaRadar()
     {
         const bool aviacao = decRodando_ && ehAviacao(decTipo_);
         const ImVec2 q = ImGui::GetCursorScreenPos() + ImVec2(8 * s, bh * 0.5f);
-        const bool recebe = aviacao && (decTipo_ != Decoders::ADSB || d.adsb().estado().msgsPorS > 0.05);
-        dl->AddCircleFilled(q, 5 * s, aviacao ? (recebe ? C_FOSFORO : C_AMBAR) : C_VERM, 12);
+        const bool rede = d.adsbRede().ligado();
+        const bool recebe = (aviacao && (decTipo_ != Decoders::ADSB || d.adsb().estado().msgsPorS > 0.05)) ||
+                            (rede && d.adsbRede().conectado());
+        const bool algum = aviacao || rede;
+        dl->AddCircleFilled(q, 5 * s, algum ? (recebe ? C_FOSFORO : C_AMBAR) : C_VERM, 12);
         char b[96];
-        std::snprintf(b, sizeof b, "%s", aviacao ? nomeFonte(decTipo_) : T("sem decodificador de aviação"));
-        textoSombra(dl, f_.negrito, f_.negrito->FontSize, q + ImVec2(10 * s, 0), aviacao ? C_TEXTO : C_AMBAR, b, 0, 0.5f);
+        if (aviacao && rede) std::snprintf(b, sizeof b, "%s + %s", nomeFonte(decTipo_), T("ADS-B pela rede"));
+        else std::snprintf(b, sizeof b, "%s", aviacao ? nomeFonte(decTipo_) : rede ? T("ADS-B pela rede") : T("sem decodificador de aviação"));
+        textoSombra(dl, f_.negrito, f_.negrito->FontSize, q + ImVec2(10 * s, 0), algum ? C_TEXTO : C_AMBAR, b, 0, 0.5f);
     }
     float bx = W - 10 * s;
     auto botaoDir = [&](const char* rot, float w) {
@@ -1595,8 +1620,23 @@ void Ui::telaRadar()
 
             titulo(T("RECEPÇÃO"));
             const bool aviacao = decRodando_ && ehAviacao(decTipo_);
-            bolinha(aviacao ? C_FOSFORO : C_VERM);
-            ImGui::TextUnformatted(aviacao ? nomeFonte(decTipo_) : T("nenhum decodificador de aviação rodando"));
+            if (aviacao || !d.adsbRede().ligado()) {        // so com o ADS-B da rede: nao precisa avisar do dongle
+                bolinha(aviacao ? C_FOSFORO : C_VERM);
+                ImGui::TextUnformatted(aviacao ? nomeFonte(decTipo_) : T("nenhum decodificador de aviação rodando"));
+            }
+            if (d.adsbRede().ligado()) {
+                // ADS-B de outro receptor da rede (Beast)
+                auto& ar = d.adsbRede();
+                bolinha(ar.conectado() ? C_FOSFORO : C_AMBAR);
+                ImGui::TextUnformatted(T("ADS-B pela rede"));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", ar.situacao().c_str());
+                ImGui::PopStyleColor();
+                if (ar.conectado()) {
+                    const auto er = ar.core().estado();
+                    ImGui::Text(T("Rede: %.1f msg/s  |  aviões: %d (com posição: %d)"), er.msgsPorS, er.avioes, er.comPosicao);
+                }
+            }
             if (!adsbRodando) {
                 if (ImGui::Button(T("Ligar o ADS-B (1090 MHz)"), ImVec2(-FLT_MIN, 0))) ligarAdsb = true;
                 if (aviacao)

@@ -517,6 +517,28 @@ void AdsbCore::alimentarIQ(const std::complex<float>* iq, size_t n, uint32_t sps
     const size_t janela = (size_t)(kMsgUs * (sps / 1.0e6)) + 16;
     if (mag_.size() >= janela + 16384) demodular();
 
+    porSegundo(antes);
+}
+
+bool AdsbCore::mensagemRede(const uint8_t* msg, int nbits, double dt)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    est_.taxa = 0;
+    est_.taxaOk = true;
+    const double antes = relogio_;
+    relogio_ += std::clamp(dt, 0.0, 5.0);
+    bool ok = false;
+    if (msg && (nbits == 56 || nbits == 112)) {
+        uint8_t m[14];
+        std::memcpy(m, msg, (size_t)nbits / 8);
+        ok = mensagem(m, nbits, true);
+    }
+    porSegundo(antes);
+    return ok;
+}
+
+void AdsbCore::porSegundo(double antes)
+{
     // a cada segundo: mensagens por segundo e a limpeza da lista
     janelaMsgs_ += relogio_ - antes;
     if (janelaMsgs_ >= 1.0) {

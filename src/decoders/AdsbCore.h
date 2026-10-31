@@ -97,6 +97,9 @@ public:
     // Uma mensagem ja em bytes (56 ou 112 bits). Usado pelo demodulador e
     // pelos testes. Devolve true se a mensagem foi aceita.
     bool mensagem(uint8_t* msg, int nbits, bool podeCorrigir, bool jaCorrigida = false);
+    // Uma mensagem que veio PRONTA pela rede (Beast). 'dt' = segundos de relogio real
+    // desde a anterior (msg nula: so anda o relogio). Thread-safe.
+    bool mensagemRede(const uint8_t* msg, int nbits, double dt);
     void avancarRelogio(double s) { relogio_ += s; }   // (testes)
 
     static uint32_t sindrome(const uint8_t* msg, int nbits);
@@ -124,6 +127,7 @@ private:
     void alertaSquawk(Interno& v, int sq);
     void linha(const std::string& s);
     void demodular();
+    void porSegundo(double antes);              // mensagens/s, contagem e limpeza (com o mtx_ travado)
     std::string horaUtc() const;
 
     mutable std::mutex mtx_;

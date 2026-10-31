@@ -224,6 +224,10 @@ private:
     std::vector<DispositivoInfo> lista_;
     int cfgTipo_ = 0, cfgDisp_ = 0, cfgTaxa_ = 0, cfgQ_ = 2, cfgFft_ = 3;
     char cfgHost_[64] = "127.0.0.1"; int cfgPorta_ = 1234;
+    // ADS-B pela rede (outro receptor, Beast): o que esta nos campos e o que esta valendo
+    bool adsbRede_ = false; char adsbRedeHost_[64] = ""; int adsbRedePorta_ = 30005;
+    std::string adsbRedeAlvo_; int adsbRedeAlvoPorta_ = 30005;
+    void aplicarAdsbRede();
     bool cfgAgc_ = false, cfgBias_ = false, cfgIq_ = false; int cfgPpm_ = 0; float cfgGanho_ = 49.6f;
     int cfgLna_ = 9, cfgIfGain_ = 40; bool cfgIfAgc_ = false;
     int cfgS9Hf_ = -94, cfgS9Vhf_ = -93;

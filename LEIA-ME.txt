@@ -13,6 +13,13 @@ Documentos, pendrive...) e de dois cliques em SDR990S.exe.
 - A configuracao fica no arquivo SDR990S.ini, ao lado do programa. Para levar
   para outro PC, copie a pasta inteira.
 - Aparelhos: RTL-SDR (USB), RTL-TCP (rede) e SDRplay.
+- ADS-B pela rede: em MENU > Configuracao, "ADS-B pela rede (outro
+  receptor)", ligue "Receber pela rede interna (Feeder)" e digite o IP e a porta Beast de
+  outro receptor de avioes da sua rede (FlightAware/PiAware, dump1090,
+  readsb, FR24...; a porta e quase sempre 30005). O SDR990S so le, como os
+  programas que mandam para os sites, e nao muda nada no aparelho. Os
+  avioes aparecem no RADAR AEREO junto com os do dongle, que fica livre
+  para o HFDL, ACARS, VDL2 etc. O mesmo aviao nos dois aparece uma vez so.
 
 RTL-SDR: o driver WinUSB tem de estar instalado com o Zadig, igual ao SDR#.
 SDRplay: instale a API oficial da SDRplay (www.sdrplay.com/api).
