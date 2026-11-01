@@ -66,6 +66,8 @@ const Par kTextos[] = {
      "Pink dashed line from the HFDL aircraft to the ground station it is talking to\n(\"Dst GS\" in the message). Shown even when the station itself was not heard."},
     {"Falando com", "Talking to"},
     {"Copiar ficha", "Copy card"},
+    {"O ADS-B traz só o código ICAO do avião: o prefixo (PR-XXX...), o modelo e o operador vêm do hexdb.io.\nManda ao hexdb.io o código ICAO (ou o prefixo) dos aviões ouvidos. Cada um é consultado uma vez\ne fica guardado em adsb_prefixos.txt / acars_prefixos.txt ao lado do programa.",
+     "ADS-B carries only the aircraft's ICAO code: the registration (PR-XXX...), model and operator come from hexdb.io.\nSends hexdb.io the ICAO code (or registration) of the aircraft heard. Each one is looked up once\nand kept in adsb_prefixos.txt / acars_prefixos.txt next to the program."},
     {"Copia todos os dados da ficha.\nPara copiar um valor só: clique nele, selecione e Ctrl+C.",
      "Copies all the data on the card.\nTo copy a single value: click it, select and press Ctrl+C."},
     {"ADS-B pela rede (outro receptor)", "ADS-B from the network (another receiver)"},

@@ -143,6 +143,11 @@ public:
     AdsbCore& adsb() { return adsb_; }
     // ADS-B de outro receptor da rede (Beast). Chamado a cada quadro: so muda quando algo muda.
     AdsbRede& adsbRede() { return adsbRede_; }
+    // a caixinha do hexdb mudou fora da janela do ADSB (no radar): liga/desliga a consulta do dongle
+    void ligarHexdb(bool ligar) {
+        if (ligar && tipo_.load() == ADSB) hexdb_.iniciar(&adsb_);
+        else if (!ligar) hexdb_.parar();
+    }
     void manterAdsbRede(bool ligar, const std::string& host, int porta, bool internet) {
         adsbRede_.manter(ligar, host, porta);
         const bool h = adsbRede_.ligado() && internet;

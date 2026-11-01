@@ -1787,6 +1787,17 @@ void Ui::telaRadar()
                 ImGui::TextWrapped("%s", R.posNet.situacao().c_str());   // quebra a linha: a mensagem do ADS-B Exchange e comprida
                 ImGui::PopStyleColor();
             }
+            // prefixo, modelo e operador pelo codigo ICAO (vale para o ADS-B do dongle, o da rede
+            // interna e o ACARS/VDL2/HFDL) - a mesma caixinha da janela do ADSB
+            if (ImGui::Checkbox(T("Buscar prefixo e modelo na internet (hexdb.io)"), &decAj_.adsbInternet)) {
+                d.ligarHexdb(decAj_.adsbInternet);
+                Config::instance().set("dec_adsb_internet", decAj_.adsbInternet);
+                Config::instance().salvar();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", T("O ADS-B traz só o código ICAO do avião: o prefixo (PR-XXX...), o modelo e o operador vêm do hexdb.io.\n"
+                                          "Manda ao hexdb.io o código ICAO (ou o prefixo) dos aviões ouvidos. Cada um é consultado uma vez\n"
+                                          "e fica guardado em adsb_prefixos.txt / acars_prefixos.txt ao lado do programa."));
             const char* kCor[] = {T("cor: empresa"), T("cor: altitude")};
             const char* kSimb[] = {T("símbolo: avião"), T("símbolo: ponto")};
             ImGui::SetNextItemWidth(wl * 0.5f - 12 * s);

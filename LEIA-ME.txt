@@ -230,6 +230,9 @@ ADSB, ACARS, VDL2 e HFDL)
    (rapidapi.com/adsbx/api/adsbexchange-com1) e cola a propria chave. Com a
    chave, o radar procura primeiro la e, se nao achar, no adsb.lol (gratis).
    Vale para ADS-B, ACARS, VDL2 e HFDL. A chave fica so no SDR990S.ini.
+ - Prefixo, modelo e operador pelo codigo ICAO: caixinha "Buscar prefixo e
+   modelo na internet (hexdb.io)" no painel da esquerda do radar (tambem na
+   janela do ADSB). Vem desligada; ligando, fica gravado.
  - Ficha do alvo: clique num valor para selecionar e copiar (Ctrl+C); o
    botao "Copiar ficha" copia tudo.
  - HFDL, ADSB, ACARS e VDL2 ligam o MUTE ao abrir; ao sair, volta como estava.
