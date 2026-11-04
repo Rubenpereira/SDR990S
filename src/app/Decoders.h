@@ -29,6 +29,7 @@
 #include "../decoders/SstvCore.h"
 #include "../decoders/WefaxCore.h"
 #include "../decoders/OliviaCore.h"
+#include "../decoders/SelcallCore.h"
 #include "../decoders/StanagCore.h"
 #include "../decoders/BpskCore.h"
 #include "../decoders/AdsbCore.h"
@@ -48,7 +49,7 @@ class PactorCore;
 
 class Decoders {
 public:
-    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, SATELITES, OLIVIA, STANAG, BPSK, ADSB, N_TIPOS };
+    enum Tipo { NENHUM = 0, CW, RTTY, SITORB, DSC, ALE, DMR, TETRA, HFDL, AIS, APRS, ACARS, VDL2, ANALISE, DRM, SSTV, WEFAX, PACTOR, FT8, FT4, SATELITES, OLIVIA, STANAG, BPSK, ADSB, SELCAL, N_TIPOS };
 
     struct Ajustes {
         float rttyBaud = 45.45f, rttyShift = 170.f;
@@ -161,6 +162,9 @@ public:
     SstvCore& sstv() { return sstv_; }
     WefaxCore& wefax() { return wefax_; }
     OliviaCore& olivia() { return olivia_; }
+    // SELCAL: copia da lista de chamadas (o audio mexe nela em outra thread)
+    std::vector<SelcallCore::Chamada> selcallChamadas();
+    void limparSelcall();
     StanagCore& stanag() { return stanag_; }
     BpskCore& bpsk() { return bpsk_; }
     // WEFAX: igual ao SSTV, o PNG e salvo aqui (pasta WEFAX); a tela pega para o historico
@@ -221,6 +225,7 @@ private:
     Drm drm_;
     SstvCore sstv_;      // SSTV: imagens (o audio vai direto, na taxa do radio)
     WefaxCore wefax_;    // WEFAX: fax meteorologico (idem)
+    SelcallCore selcall_;  // SELCAL: chamada seletiva dos avioes (2 pulsos de 2 tons)
     OliviaCore olivia_;  // OLIVIA: decodifica o texto (MFSK + FEC de Walsh)
     StanagCore stanag_;  // STANAG 4285: 75..1200 bps, portadora unica em 1800 Hz
     BpskCore bpsk_;      // PSK31/63/125/250, QPSK e os FEC "R" (BPSK63F/125F)

@@ -258,7 +258,7 @@ std::string pastaExe()
 // Tecla do radio. led: 0 sem LED, 1 apagado, 2 verde, 3 laranja, 4 vermelho,
 // 5 ambar. Devolve 1 = clique, 2 = toque longo (SEL), 0 = nada.
 int Ui::tecla(const char* id, const char* txt, float x, float y, float w, float h, int led,
-              const char* acima, const char* dica, unsigned corTxt, bool fkey)
+              const char* acima, const char* dica, unsigned corTxt, bool fkey, int ledBaixo)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 a = M.p(x, y), b = M.p(x + w, y + h);
@@ -286,25 +286,31 @@ int Ui::tecla(const char* id, const char* txt, float x, float y, float w, float 
     dl->AddRect(a, b, IM_COL32(0x0c, 0x0c, 0x0e, 255), r, 0, M.d(0.8f));
     if (fkey && !ativo)   // brilho ambar das teclas F
         dl->AddRect(ImVec2(a.x - M.d(1.5f), a.y - M.d(1.5f)), ImVec2(b.x + M.d(1.5f), b.y + M.d(1.5f)), IM_COL32(255, 170, 40, 60), r + M.d(1.5f), 0, M.d(1.4f));
-    if (led > 0) {
+    // LED de cima (led) e, nas teclas duplas, o de baixo (ledBaixo): o de
+    // cima acende para o modo de cima (LSB, FSK, FM), o de baixo para o de
+    // baixo (USB, PSK, AM). 1 = apagado, 2 = verde, 3..5 = outras cores.
+    auto desenhaLed = [&](int ld, float y0) {
         ImU32 cl = IM_COL32(0x30, 0x36, 0x32, 255);
-        if (led == 2) cl = P_VERDE; else if (led == 3) cl = P_LARANJA; else if (led == 4) cl = P_VERMELHO; else if (led == 5) cl = P_AMBAR;
+        if (ld == 2) cl = P_VERDE; else if (ld == 3) cl = P_LARANJA; else if (ld == 4) cl = P_VERMELHO; else if (ld == 5) cl = P_AMBAR;
         const float lw = w * 0.42f;
-        const ImVec2 la = M.p(x + (w - lw) * 0.5f, y + 1.6f), lb = M.p(x + (w + lw) * 0.5f, y + 3.4f);
-        if (led >= 2) dl->AddRectFilled(ImVec2(la.x - M.d(1.5f), la.y - M.d(1.2f)), ImVec2(lb.x + M.d(1.5f), lb.y + M.d(1.2f)), alfa(cl, 70), M.d(1.5f));
+        const ImVec2 la = M.p(x + (w - lw) * 0.5f, y0), lb = M.p(x + (w + lw) * 0.5f, y0 + 1.8f);
+        if (ld >= 2) dl->AddRectFilled(ImVec2(la.x - M.d(1.5f), la.y - M.d(1.2f)), ImVec2(lb.x + M.d(1.5f), lb.y + M.d(1.2f)), alfa(cl, 70), M.d(1.5f));
         dl->AddRectFilled(la, lb, cl, M.d(0.8f));
-    }
+    };
+    if (led > 0) desenhaLed(led, y + 1.6f);
+    if (ledBaixo > 0) desenhaLed(ledBaixo, y + h - 3.4f);
+    const bool doisLeds = led > 0 && ledBaixo > 0;
     if (txt && *txt) {
         const bool duas = std::strchr(txt, '\n') != nullptr;
         float tam = std::min(h * (duas ? 0.40f : 0.62f), 11.f);
         std::string maior;
         { std::string a; for (const char* c = txt; ; ++c) { if (*c == '\n' || !*c) { if (a.size() > maior.size()) maior = a; a.clear(); if (!*c) break; } else a += *c; } }
         for (int i = 0; i < 12 && tam > 4.f; ++i) {      // encolhe so o que precisa para caber
-            const float lim = h * (duas ? 0.47f : 0.80f);
+            const float lim = h * (doisLeds ? (duas ? 0.36f : 0.56f) : (duas ? 0.47f : 0.80f));   // dois LEDs: cabe entre eles
             if (larguraTexto(f_.painel, tam, maior.c_str()) <= w - 4.f && tamReal(tam) <= lim + 0.01f) break;
             tam *= 0.92f;
         }
-        textoCaixa(f_.painel, tam, x, y + (led > 0 ? 1.2f : 0.f), w, h,
+        textoCaixa(f_.painel, tam, x, y + (led > 0 && !doisLeds ? 1.2f : 0.f), w, h,
                    corTxt ? (ImU32)corTxt : (fkey ? IM_COL32(0x20, 0x0e, 0x00, 255) : IM_COL32(0xff, 0xff, 0xff, 255)), txt);
     }
     if (acima && *acima) textoCabe(f_.painel, 7.2f, x + w * 0.5f, y - 10.2f, IM_COL32(0xf4, 0xf4, 0xf4, 255), acima, 0.5f, w + 12.f);
@@ -1883,8 +1889,9 @@ void Ui::controlesBaixo()
 void Ui::colunaModos()
 {
     const std::string m = r_.modo();
-    if (tecla("kSsb", "LSB\n/USB", 712, 382, 54, 25, (m == "LSB" || m == "USB") ? 2 : 0, nullptr,
-              "LSB/USB: banda lateral (troca entre LSB e USB)")) {
+    if (tecla("kSsb", "LSB\n/USB", 712, 382, 54, 25, m == "LSB" ? 2 : m == "USB" ? 1 : 0, nullptr,
+              "LSB/USB: banda lateral (troca entre LSB e USB)\nLED de cima aceso = LSB, LED de baixo aceso = USB",
+              0, false, m == "USB" ? 2 : m == "LSB" ? 1 : 0)) {
         if (m == "LSB") mudarModoPainel("USB");
         else if (m == "USB") mudarModoPainel("LSB");
         else mudarModoPainel(r_.vfo() < 10000000 ? "LSB" : "USB");
@@ -1893,16 +1900,26 @@ void Ui::colunaModos()
     if (tecla("kCw", "CW", 712, 420, 54, 21, m == "CW" ? 2 : 0, nullptr, "CW: telegrafia (largura e SHIFT no HI/LO, tom no CW PITCH)"))
         mudarModoPainel("CW");
     texto(f_.painel, 5.f, 739, 442.5f, P_ROTULO2, "REV", 0.5f);
-    if (tecla("kFsk", "FSK\n/PSK", 712, 454, 54, 25, r_.decoders().tipo() == Decoders::RTTY ? 2 : 0, nullptr,
-              "FSK/PSK: decodificador de RTTY (FSK) - abre a janela já em RTTY")) {
-        decAberta_ = true;
-        if (r_.decoders().tipo() != Decoders::RTTY) escolherDecoder(Decoders::RTTY, true);
+    {
+        const auto td = r_.decoders().tipo();
+        const bool fsk = td == Decoders::RTTY, psk = td == Decoders::BPSK;
+        if (tecla("kFsk", "FSK\n/PSK", 712, 454, 54, 25, fsk ? 2 : psk ? 1 : 0, nullptr,
+                  "FSK/PSK: decodificador de RTTY (FSK) ou de PSK31/63/125 (BPSK)\n"
+                  "Clique: abre em RTTY; com a janela aberta, troca entre RTTY e PSK\n"
+                  "LED de cima aceso = FSK (RTTY), LED de baixo aceso = PSK",
+                  0, false, psk ? 2 : fsk ? 1 : 0)) {
+            if (decAberta_ && fsk)      escolherDecoder(Decoders::BPSK, true);
+            else if (decAberta_ && psk) escolherDecoder(Decoders::RTTY, true);
+            else if (!fsk && !psk)      escolherDecoder(Decoders::RTTY, true);
+            decAberta_ = true;
+        }
     }
     texto(f_.painel, 5.f, 739, 480.5f, P_ROTULO2, "FM-N", 0.5f);
     {
-        const bool fm = m == "FM" || m == "NFM" || m == "WFM" || m == "AM";
-        const int k = tecla("kFmam", "FM\n/AM", 712, 492, 54, 25, fm ? 2 : 0, nullptr,
-                            "FM/AM: alterna AM / FM estreito\nSegurar (SEL): FM largo (radiodifusão 88-108)");
+        const bool fm = m == "FM" || m == "NFM" || m == "WFM", am = m == "AM";
+        const int k = tecla("kFmam", "FM\n/AM", 712, 492, 54, 25, fm ? 2 : am ? 1 : 0, nullptr,
+                            "FM/AM: alterna AM / FM estreito\nSegurar (SEL): FM largo (radiodifusão 88-108)\nLED de cima aceso = FM, LED de baixo aceso = AM",
+                            0, false, am ? 2 : fm ? 1 : 0);
         if (k == 1) mudarModoPainel(m == "AM" ? "NFM" : "AM");
         if (k == 2) mudarModoPainel("WFM");
     }

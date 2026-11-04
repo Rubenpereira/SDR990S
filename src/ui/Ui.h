@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <d3d9.h>
@@ -271,6 +272,7 @@ private:
     int  decCol_ = 0, decLinhas_ = 0;
     int decCanalRtty_ = -1, decCanalSitor_ = -1, decCanalDsc_ = -1, decCanalAle_ = -1, decCanalPactor_ = -1;
     int decCanalOlivia_ = -1;
+    int decCanalSelcall_ = -1;
     int decCanalStanag_ = -1;
     int decCanalBpsk_ = -1;
     bool oliviaEncolher_ = false;    // a janela encolhe ao escolher o OLIVIA
@@ -282,6 +284,14 @@ private:
     std::vector<Ft8Core::Mensagem> ft8Msgs_;
     bool ft8SoCq_ = false;
     char ft8Busca_[24] = {0};
+    // colunas Pais e km: quem transmite e a grade de cada mensagem (paralelo a ft8Msgs_)
+    struct Ft8Extra { std::string ind, grade; };
+    std::vector<Ft8Extra> ft8Extra_;
+    std::unordered_map<std::string, std::string> ft8Grades_;   // indicativo -> ultima grade que ele mandou
+    char ft8Qth_[16] = {0};           // locator digitado no painel do FT8 (ft8_qth no INI)
+    bool ft8QthLido_ = false;
+    bool ft8MeuQth(double& lat, double& lon, std::string* origem = nullptr);
+    void ft8Chegou(Ft8Core::Mensagem&& m);
 
     // SATELITES (Satelites.cpp): rastreio, polar em cruz, mapa e sintonia
     void painelSatelites();
@@ -377,7 +387,8 @@ private:
     void popupsPainel();
     // peças desenhadas
     int  tecla(const char* id, const char* txt, float x, float y, float w, float h, int led = 0,
-               const char* acima = nullptr, const char* dica = nullptr, unsigned corTxt = 0, bool fkey = false);
+               const char* acima = nullptr, const char* dica = nullptr, unsigned corTxt = 0, bool fkey = false,
+               int ledBaixo = 0);   // ledBaixo: 2o LED embaixo (teclas duplas: LSB/USB, FSK/PSK, FM/AM)
     bool giro(const char* id, float cx, float cy, float r, const char* rotE, const char* rotD,
               float tIn, float tOut, float& dIn, float& dOut, const char* dica, bool duplo = true);
     int  encoder(const char* id, float cx, float cy, float r, float& ang, const char* dica, bool* clique = nullptr);

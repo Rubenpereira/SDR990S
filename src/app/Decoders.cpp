@@ -73,6 +73,7 @@ const char* Decoders::nome(Tipo t)
     case STANAG: return "STANAG 4285";
     case BPSK: return "PSK (BPSK/QPSK)";
     case ADSB: return "ADSB (1090 MHz)";
+    case SELCAL: return T("SELCAL (chamada seletiva de aviões)");
     default: return T("Nenhum");
     }
 }
@@ -225,6 +226,10 @@ void Decoders::iniciar(Tipo t, const Ajustes& a)
     case OLIVIA:
         olivia_.limpar();
         escrever(T("[OLIVIA] USB - tons centrados em 1500 Hz; o texto decodificado sai na caixa de baixo.\n"));
+        break;
+    case SELCAL:
+        selcall_.limpar();
+        escrever(T("[SELCAL] USB na frequência do canal (fonia aeronáutica em HF). Cada chamada são dois pulsos de 1 s com dois tons juntos; o código (ex.: AB-CD) sai aqui e na tabela.\n"));
         break;
     case STANAG: {
         StanagCore::Params sp;
@@ -498,6 +503,12 @@ void Decoders::alimentar(const float* x, size_t n)
                 saida += "\n";
             }
         }
+        else if (tipo_.load() == SELCAL) {
+            // SELCAL: os dois pulsos de dois tons viram o codigo do aviao
+            selcall_.alimentar(x, n);
+            const std::string t = selcall_.pegarTexto();
+            if (!t.empty()) saida += t;
+        }
         else if (tipo_.load() == OLIVIA) {
             // o OLIVIA e decodificado aqui: o texto sai na janela
             olivia_.alimentar(x, n);
@@ -654,6 +665,16 @@ std::string Decoders::estado()
     char b[200];
     std::snprintf(b, sizeof b, "%s", T("Parado"));
     if (tipo_.load() == SATELITES) std::snprintf(b, sizeof b, "%s", T("Satélites - fonia: o áudio é do rádio"));
+    if (tipo_.load() == SELCAL) {
+        const auto e = selcall_.estado();
+        if (e.tons)
+            std::snprintf(b, sizeof b, T("SELCAL  |  TONS NO AR: %.0f + %.0f Hz  |  %d chamada(s)"), e.f1, e.f2, e.chamadas);
+        else if (e.chamadas > 0)
+            std::snprintf(b, sizeof b, T("SELCAL ouvindo  |  %d chamada(s)  |  última %s às %s UTC"),
+                          e.chamadas, e.ultimo.c_str(), e.ultimaHora.c_str());
+        else
+            std::snprintf(b, sizeof b, "%s", T("SELCAL ouvindo  |  nenhuma chamada ainda"));
+    }
     if (tipo_.load() == OLIVIA) {
         const auto e = olivia_.estado();
         std::snprintf(b, sizeof b, T("OLIVIA  |  %s"), e.texto.c_str());
@@ -805,6 +826,7 @@ bool Decoders::travado()
     if (ft8_) return ft8_->noUltimoPeriodo() > 0;
     if (tipo_.load() == TETRA) return tetra_.estado().travado;
     if (tipo_.load() == STANAG) return stanag_.estado().ok;
+    if (tipo_.load() == SELCAL) return selcall_.estado().tons;
     if (tipo_.load() == BPSK) return bpsk_.estado().ok;
     if (tipo_.load() == ADSB) return adsb_.estado().msgsPorS > 0;
     if (tipo_.load() == SSTV) return sstv_.status().estado == SstvCore::RECEBENDO;
@@ -817,6 +839,18 @@ bool Decoders::travado()
         return t - std::max(e.ts[0].ultAtivo, e.ts[1].ultAtivo) < 2.0;
     }
     return false;
+}
+
+std::vector<SelcallCore::Chamada> Decoders::selcallChamadas()
+{
+    std::lock_guard<std::mutex> lk(coreMutex_);
+    return selcall_.chamadas();
+}
+
+void Decoders::limparSelcall()
+{
+    std::lock_guard<std::mutex> lk(coreMutex_);
+    selcall_.limpar();
 }
 
 std::vector<Ft8Core::Mensagem> Decoders::pegarFt8()

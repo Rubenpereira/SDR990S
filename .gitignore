@@ -61,6 +61,11 @@ Capturas/
 Gravacoes/
 Decodificados/
 
+# ---- lista de frequencias do autor (so referencia, fica neste PC) --------
+/Lista Freq/
+*.dbf
+*.ods
+
 # ---- 5) ferramentas do autor para publicar: NUNCA sobem -------------------
 # (fica no fim de proposito: estas linhas vencem qualquer "!" acima)
 /SUBIR_GITHUB.bat

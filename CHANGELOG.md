@@ -1,5 +1,16 @@
 # SDR990S - histórico
 
+## SDR990S 1.2.7
+
+- **Novo decodificador SELCAL** (chamada seletiva dos aviões, ICAO Anexo 10): o "plim-plom" de dois tons que a estação de terra manda para chamar UM avião antes de falar com ele. Dois pulsos de 1 s, cada um com dois tons juntos, viram o código do avião (ex.: **AB-CD**), com hora UTC, desvio de sintonia, nível e os tons; os 16 tons clássicos e os 16 novos do **SELCAL32**. Fica na lista logo depois do ADSB. Canal com 190 frequências de fonia aeronáutica em HF (redes MWARA da ICAO e LDOC das companhias, com as estações e os horários UTC na dica) em USB, com o rádio na frequência do canal; o som continua (para ouvir a conversa). Acha o desvio do SSB sozinho (até ±60 Hz). Cada tom é seguido sozinho e aguenta sumir até 0,35 s: no HF os dois tons desvanecem cada um na sua hora (desvanecimento seletivo). Conferido com uma gravação real do autor em 8906 kHz (NAT-A), com a propagação fraca: as 3 chamadas saíram (AH-KP duas vezes e AK-CM, desvio de -6 Hz). Nos testes decodifica com cada tom até 12 dB abaixo do ruído em 3 kHz (36-38 de 40, também com desvanecimento seletivo), sem falsos alarmes em 20 min de ruído, voz real, voz simulada ou tom único.
+- **FT8 / FT4: colunas País e km na tabela.** O país (entidade DXCC) da estação que transmite sai do indicativo pela tabela do cty.dat (AD1C) - indicativo exato, depois o prefixo mais longo; "F/PY1XX" e "PY1XX/F" usam o "F", /P /M /QRP são ignorados, /MM e /AM ficam sem país. Quem transmite é o segundo indicativo da mensagem (no CQ, o que vem depois do CQ/DX/SA/POTA; na DXpedition, o depois do ";").
+- A distância é calculada da grade que a estação mandou (CQ ... GG87) até o seu QTH; a grade fica lembrada, então as mensagens seguintes dela (-12, RR73, 73) também mostram a distância certa. Sem grade, aparece aproximada pelo centro do país, com "~" e em cinza. Passando o mouse, diz de onde veio.
+- **Meu QTH** no painel do FT8: digite o locator (GG87 ou GG87jb, fica no INI como `ft8_qth`); vazio, usa o centro do RADAR AÉREO ou o QTH dos SATÉLITES.
+- A busca da tabela também acha pelo país ("BRASIL", "JAP").
+- **LED de baixo nas teclas duplas de modo**: LSB/USB, FSK/PSK e FM/AM agora têm um LED em cima e outro embaixo - acende o de cima para o modo de cima (LSB, FSK, FM) e o de baixo para o de baixo (USB, PSK, AM). Antes só havia o de cima, aceso nos dois modos, e não dava para saber se era LSB ou USB.
+- **FSK/PSK alterna RTTY e PSK**: com a janela de decodificadores aberta, cada clique troca entre RTTY e PSK (BPSK); fechada, abre em RTTY como antes.
+- **Corrigir IQ**: com SDRplay a caixinha não aparece (a API dela já corrige o IQ), mas a correção continuava ligada se tivesse sido marcada com o RTL. Agora só vale para RTL-SDR e RTL-TCP.
+
 ## SDR990S 1.2.6
 
 - Nova tela **RADAR AÉREO**: um radar de verdade (PPI), em tela cheia, com os aviões que o dongle está ouvindo. Abre pela lista de decodificadores (**RADAR AÉREO**, no fim) ou pelo botão **RADAR AÉREO** nas janelas do ADSB, ACARS, VDL2 e HFDL. Não é um decodificador novo: usa o que estiver rodando e, se nenhum de aviação estiver ligado, liga o ADSB (o melhor para o radar: posição várias vezes por segundo; o ACARS, o VDL2 e o HFDL só mandam a posição de vez em quando e o avião fica 15 min na última posição recebida).

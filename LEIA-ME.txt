@@ -181,6 +181,28 @@ STANAG 4285 (DATA ou PF A > Decodificador > STANAG 4285)
    (600 x 1200) ou o outro entrelacador - em ITA2 sai texto mesmo errado.
  - Fechando a janela de decodificadores o RADIO VOLTA AO ESTADO ANTERIOR.
 
+SELCAL (DATA ou PF A > Decodificador > SELCAL)
+ - A chamada seletiva dos avioes (ICAO Anexo 10): antes de falar com UM
+   aviao, a estacao de terra manda o codigo dele - dois pulsos de 1 s, cada
+   um com DOIS tons juntos, separados por 0,2 s (o "plim-plom"). So o aviao
+   com aquele codigo toca a campainha na cabine. O codigo tem 4 letras,
+   escrito AB-CD, e fica no plano de voo (campo 18, SEL/).
+ - Escolha o canal no combo: 190 canais de fonia aeronautica em HF, da
+   lista de frequencias do autor - as redes MWARA da ICAO (SAT, SAM, CAR,
+   NAT, AFI, MID, INO, SEA, CEP, CWP, NP, SP, NCA) e as LDOC das companhias.
+   Passe o mouse para ver as estacoes e os horarios (verde = no ar agora);
+   a busca acha pela frequencia ou pelo nome ("recife", "shanwick").
+   O radio vai em USB com o dial NA frequencia do canal (8906 kHz = 8.906,0
+   no radio). O 8906 (NAT-A: Santa Maria, Shanwick, New York) foi ouvido
+   pelo autor daqui do Brasil.
+ - O som continua ligado (voce ouve a conversa depois da chamada). Cada
+   codigo sai na caixa de baixo e na tabela (hora UTC, vezes, desvio de
+   sintonia, nivel e os tons); o mesmo codigo repetido soma em "Vezes".
+   Clique com o direito no codigo para copiar.
+ - Le os 16 tons classicos (A a S) e os 16 novos do SELCAL32 (T a Z e 1 a
+   9). O desvio do SSB (ate 60 Hz para cada lado) e achado sozinho. As
+   chamadas sao espacadas: pode levar varios minutos ate aparecer uma.
+
 ADSB (DATA ou PF A > Decodificador > ADSB)
  - Os avioes em 1090 MHz (ADS-B / Modo S), decodificados aqui mesmo, sem
    programa de fora. Ao escolher, o dongle passa para 2,4 Msps com 1090 MHz

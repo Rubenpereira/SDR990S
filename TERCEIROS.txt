@@ -35,6 +35,10 @@ adsb.lol (posicao pela internet no Radar Aereo, consulta a API publica e gratuit
 ADS-B Exchange (OPCIONAL no Radar Aereo: so com a chave da API do proprio usuario,
    assinatura paga no RapidAPI; o SDR990S nao traz chave nem redistribui os dados)
                                https://www.adsbexchange.com
+cty.dat - prefixos e entidades DXCC (coluna Pais do FT8/FT4)
+                               uso e distribuicao livres   https://www.country-files.com
+   (c) Jim Reisert AD1C. Convertido em src/ui/Ft8Paises.inc por
+   build/cty/gerar_paises.py (nomes traduzidos para o portugues).
 OurAirports (aeroportos grandes e medios do Radar Aereo)
                                dominio publico   https://ourairports.com/data/
 Elementos orbitais (satelites.tle)

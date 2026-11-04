@@ -487,7 +487,9 @@ void Radio::ligarCallback()
         // matrix do IqCorretor nos dois caminhos (com e sem o bloco de DC).
         iqCorr_.medir(work.data(), n);
         iqCorr_.pacote();
-        if (cfg.iqFix()) {
+        // SDRplay: a API dela ja corrige o IQ e a caixinha nem aparece na janela
+        // para ela - entao nao aplica (senao ficaria ligado sem como desligar).
+        if (cfg.iqFix() && tipo_ != "sdrplay") {
             for (auto& s : work)  s = iqCorr_.corrigir(s);
             for (auto& s : semDc) s = iqCorr_.corrigir(s);
         }

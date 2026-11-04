@@ -6,6 +6,7 @@
 #include "masdr_json.h"
 #include "Recursos.h"
 #include "Idioma.h"
+#include "Ft8Pais.h"
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
@@ -322,7 +323,8 @@ void Ui::salvarEstado()
 // ===========================================================================
 // Teste remoto (igual ao captura.pedido): um arquivo teste.pedido ao lado do
 // exe, uma ordem por linha - "ligar", "freq 14074000", "modo USB",
-// "decoder FT8" (ou FT4 / SAT / ADSB / NENHUM). O arquivo e apagado depois de lido.
+// "decoder FT8" (ou FT4 / SAT / ADSB / NENHUM), "ft8msg -12 CQ PU1ABC GG87".
+// O arquivo e apagado depois de lido.
 void Ui::lerPedidoTeste()
 {
     static double proximo = 0;
@@ -357,11 +359,24 @@ void Ui::lerPedidoTeste()
         else if (l == "config") abrirConfig();                  // abre a janela de configuracao (teste)
         else if (l == "config_fechar") cfgAberta_ = false;
         else if (l.rfind("radar", 0) == 0) radarPedido(l);   // radar, radar_centro GG87jb, radar_alcance 150...
+        else if (l.rfind("ft8msg ", 0) == 0) {          // "ft8msg -12 CQ PU1ABC GG87": poe uma linha na tabela do FT8 (teste)
+            Ft8Core::Mensagem m;
+            SYSTEMTIME st;
+            GetSystemTime(&st);
+            m.hora = st.wHour * 10000 + st.wMinute * 100 + (st.wSecond / 15) * 15;
+            const std::string resto = l.substr(7);
+            const size_t sp = resto.find(' ');
+            m.snr = std::atoi(resto.c_str());
+            m.dt = 0.1f;
+            m.hz = 500.f + (float)(ft8Msgs_.size() % 20) * 120.f;
+            m.texto = sp == std::string::npos ? resto : resto.substr(sp + 1);
+            ft8Chegou(std::move(m));
+        }
         else if (l.rfind("decoder ", 0) == 0) {
             const std::string n = l.substr(8);
             const int t = n == "FT8" ? Decoders::FT8 : n == "FT4" ? Decoders::FT4 : n == "SAT" ? Decoders::SATELITES :
                           n == "ADSB" ? Decoders::ADSB : n == "ACARS" ? Decoders::ACARS : n == "VDL2" ? Decoders::VDL2 :
-                          n == "HFDL" ? Decoders::HFDL : Decoders::NENHUM;
+                          n == "HFDL" ? Decoders::HFDL : n == "SELCAL" ? Decoders::SELCAL : Decoders::NENHUM;
             decAberta_ = t != Decoders::NENHUM;
             escolherDecoder(t, true);
         }
@@ -2629,6 +2644,217 @@ const CanalDec kCanaisRtty[] = {
     {4583000, "4583 kHz - DWD Alemanha (meteorologia)", 50, 450, true},
     {147300, "147,3 kHz - DWD Alemanha (ondas longas)", 50, 450, true},
 };
+// SELCAL - fonia aeronautica em HF (redes MWARA da ICAO e LDOC das companhias):
+// USB com o VFO NA frequencia publicada (o canal e o proprio dial). Gerado por
+// build\teste_radar\gera_selcall.py a partir da lista de frequencias do autor
+// (03/11/2026; a lista em si fica so no PC do autor). As chamadas SELCAL saem
+// nesses canais, antes da conversa com o aviao. hor = horarios UTC da lista.
+const CanalDec kCanaisSelcall[] = {
+    {0, "SAT - Atlântico Sul (Recife, Dakar, Sal, Canárias)", 0, 0, false},
+    {3452000, "3452 kHz - AFI-1, SAT-1/2 - Las Palmas, Dakar", 0, 0, false, "0000-2400", "Las Palmas Radio (Las Palmas-Telde Airport, Canary Islands) 0000-2400\nDakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {5565000, "5565 kHz - SAT-1/2, AFI-1 - Recife, Dakar", 0, 0, false, "0000-2400", "Recife Radio (Recife Airport, Brazil) 0000-2400\nDakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {5680000, "5680 kHz - AFI-1, SAT-1/2 - Dakar", 0, 0, false, "0000-2400", "Dakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {6535000, "6535 kHz - AFI-1, SAT-1/2 - Las Palmas, Sal Cape Verde, Dakar", 0, 0, false, "0000-2400", "Las Palmas Radio (Las Palmas-Telde Airport, Canary Islands) 0000-2400\nSal Cape Verde Radio (Espargos-Sal Airport, Cape Verde) 0000-2400\nDakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {6649000, "6649 kHz - SAT-1/2 - Recife", 0, 0, false, "0000-2400", "Recife Radio (Recife Airport, Brazil) 0000-2400\n"},
+    {6673000, "6673 kHz - AFI-1, SAT-1/2 - Dakar", 0, 0, false, "0000-2400", "Dakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {8861000, "8861 kHz - AFI-1, SAT-1/2 - Las Palmas, Sal Cape Verde, Dakar", 0, 0, false, "0000-2400", "Las Palmas Radio (Las Palmas-Telde Airport, Canary Islands) 0000-2400\nSal Cape Verde Radio (Espargos-Sal Airport, Cape Verde) 0000-2400\nDakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {10096000, "10096 kHz - SAT-1/2 - Recife", 0, 0, false, "0000-2400", "Recife Radio (Recife Airport, Brazil) 0000-2400\n"},
+    {13315000, "13315 kHz - SAT-1/2 - Recife", 0, 0, false, "0000-2400", "Recife Radio (Recife Airport, Brazil) 0000-2400\n"},
+    {13357000, "13357 kHz - AFI-1, SAT-1/2 - Dakar", 0, 0, false, "0000-2400", "Dakar Radio (Dakar Airport, Senegal) 0000-2400\n"},
+    {0, "SAM - América do Sul (Argentina, Chile, Peru, Guiana Francesa)", 0, 0, false},
+    {2944000, "2944 kHz - SAM-1 - Cordoba, Mendoza, Resistencia", 0, 0, false, "0000-2400", "Cordoba Radio (Cordoba Airport, Argentina) 0000-2400\nMendoza Radio (Mendoza Airport, Argentina) 0000-2400\nResistencia Radio (Resistencia Airport, Argentina) 0000-2400\n"},
+    {4669000, "4669 kHz - SAM-1 - Pascua", 0, 0, false, "0000-2400", "Pascua Radio (Isla de Pascua, Easter Island) 0000-2400\n"},
+    {5643000, "5643 kHz - SAM-1 - Pascua", 0, 0, false, "0000-2400", "Pascua Radio (Isla de Pascua, Easter Island) 0000-2400\n"},
+    {6649000, "6649 kHz - SAM-1, SAM-2 - Buenos Aires, Cordoba, Mendoza +3", 0, 0, false, "0000-2400", "Buenos Aires Radio (Buenoa Aires-Ezeiza AP, Argentina) 0000-2400\nCordoba Radio (Cordoba Airport, Argentina) 0000-2400\nMendoza Radio (Mendoza Airport, Argentina) 0000-2400\nResistencia Radio (Resistencia Airport, Argentina) 0000-2400\nPascua Radio (Isla de Pascua, Easter Island) 0000-2400\nLima Radio (Lima Airport, Peru) 0000-2400\n"},
+    {8667000, "8667 kHz - SAM-1 - Pascua", 0, 0, false, "0000-2400", "Pascua Radio (Isla de Pascua, Easter Island) 0000-2400\n"},
+    {8855000, "8855 kHz - SAM-2 - Cayenne", 0, 0, false, "0000-2400", "Cayenne Radio (Cayenne Airport, Guyana) 0000-2400\n"},
+    {10024000, "10024 kHz - SAM-1, SAM-2 - Cordoba, Mendoza, Resistencia +4", 0, 0, false, "0000-2400", "Cordoba Radio (Cordoba Airport, Argentina) 0000-2400\nMendoza Radio (Mendoza Airport, Argentina) 0000-2400\nResistencia Radio (Resistencia Airport, Argentina) 0000-2400\nAntofagasta Radio (Antofagasta Airport, Chile) 0000-2400\nSantiago Radio (Santiago Airport, Chile) 0000-2400\nPascua Radio (Isla de Pascua, Easter Island) 0000-2400\nLima Radio (Lima Airport, Peru) 0000-2400\n"},
+    {13261000, "13261 kHz - SAM-1 - Pascua", 0, 0, false, "0000-2400", "Pascua Radio (Isla de Pascua, Easter Island) 0000-2400\n"},
+    {13300000, "13300 kHz - SAM-1 - Santiago, Pascua", 0, 0, false, "0000-2400", "Santiago Radio (Santiago Airport, Chile) 0000-2400\nPascua Radio (Isla de Pascua, Easter Island) 0000-2400\n"},
+    {0, "CAR - Caribe (New York, COCESNA)", 0, 0, false},
+    {3455000, "3455 kHz - CAR-B - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {5520000, "5520 kHz - CAR-B - New York", 0, 0, false, "2000-1000", "New York Oceanic (Riverhead,NY, USA) 2000-1000\n"},
+    {5550000, "5550 kHz - CAR-A - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {6577000, "6577 kHz - CAR-A - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {6586000, "6586 kHz - CAR-B - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {6649000, "6649 kHz - CAR-A - COCESNA Tegucigalpa", 0, 0, false, "0000-2400", "COCESNA Tegucigalpa (Tegucigalpa, Honduras) 0000-2400\n"},
+    {8846000, "8846 kHz - CAR-A - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {8918000, "8918 kHz - CAR-B - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {10024000, "10024 kHz - CAR-A - COCESNA Tegucigalpa", 0, 0, false, "0000-2400", "COCESNA Tegucigalpa (Tegucigalpa, Honduras) 0000-2400\n"},
+    {11330000, "11330 kHz - CAR-B - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {11396000, "11396 kHz - CAR-A - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {13297000, "13297 kHz - CAR-A - New York", 0, 0, false, "0000-2400", "New York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {0, "NAT - Atlântico Norte (Santa Maria, Shanwick, Gander, New York, Islândia)", 0, 0, false},
+    {2872000, "2872 kHz - NAT-C - Shanwick", 0, 0, false, "1300-0700", "Shanwick Radio (Shannon-Urlanmore, Ireland) 1300-0700\n"},
+    {2899000, "2899 kHz - NAT-B - Gander, Shanwick, Iceland", 0, 0, false, "2030-0830 2000-0900 2100-1000", "Gander Radio (Gander,NL, Canada) 2030-0830\nShanwick Radio (Shannon-Urlanmore, Ireland) 2000-0900\nIceland Radio (Reykjavik-Breidholt, Iceland) 2100-1000\n"},
+    {2944000, "2944 kHz - NAT-D - Shanwick", 0, 0, false, "0000-0900", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-0900\n"},
+    {2971000, "2971 kHz - NAT-D - Shanwick, Iceland", 0, 0, false, "0000-0900 2100-1000", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-0900\nIceland Radio (Reykjavik-Breidholt, Iceland) 2100-1000\n"},
+    {3016000, "3016 kHz - NAT-A - Santa Maria", 0, 0, false, "2100-0800", "Santa Maria Radio (Santa Maria Airport, Azores) 2100-0800\n"},
+    {3476000, "3476 kHz - NAT-F - Gander, Shanwick", 0, 0, false, "2030-0830 2000-0900", "Gander Radio (Gander,NL, Canada) 2030-0830\nShanwick Radio (Shannon-Urlanmore, Ireland) 2000-0900\n"},
+    {3491000, "3491 kHz - NAT-H - Santa Maria", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\n"},
+    {4675000, "4675 kHz - NAT-D - Shanwick, Iceland, Bodoe", 0, 0, false, "0000-2400", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\nIceland Radio (Reykjavik-Breidholt, Iceland) 0000-2400\nBodoe Radio (Bodoe, Norway) 0000-2400\n"},
+    {5598000, "5598 kHz - NAT-A - Santa Maria, Shanwick, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\nShanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {5616000, "5616 kHz - NAT-B - Gander", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0000-2400\n"},
+    {5649000, "5649 kHz - NAT-C - Shanwick", 0, 0, false, "0000-2400", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\n"},
+    {6622000, "6622 kHz - NAT-F - Gander, Shanwick", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0000-2400\nShanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\n"},
+    {6628000, "6628 kHz - NAT-E - Santa Maria, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {6667000, "6667 kHz - NAT-F - Shanwick", 0, 0, false, "0000-2400", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\n"},
+    {8825000, "8825 kHz - NAT-E - Santa Maria, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {8831000, "8831 kHz - NAT-F - Gander, Shanwick", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0830-2230\nShanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\n"},
+    {8864000, "8864 kHz - NAT-B - Gander, Iceland", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0600-2300\nIceland Radio (Reykjavik-Breidholt, Iceland) 0000-2400\n"},
+    {8879000, "8879 kHz - NAT-C - Shanwick", 0, 0, false, "0000-2400", "Shanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\n"},
+    {8891000, "8891 kHz - NAT-D - Gander, Shanwick, Iceland +1", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0000-2400\nShanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\nIceland Radio (Reykjavik-Breidholt, Iceland) 0000-2400\nBodoe Radio (Bodoe, Norway) 0000-2400\n"},
+    {8906000, "8906 kHz - NAT-A - Santa Maria, Shanwick, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\nShanwick Radio (Shannon-Urlanmore, Ireland) 0000-2400\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {8924000, "8924 kHz - NAT-B, NAT-D - Iceland", 0, 0, false, "0900-2100", "Iceland Radio (Reykjavik-Breidholt, Iceland) 0900-2100\n"},
+    {11279000, "11279 kHz - NAT-D - Gander, Iceland", 0, 0, false, "0000-2400", "Gander Radio (Gander,NL, Canada) 0000-2400\nIceland Radio (Reykjavik-Breidholt, Iceland) 0000-2400\n"},
+    {11309000, "11309 kHz - NAT-E - Santa Maria, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0000-2400\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {11336000, "11336 kHz - NAT-C - Gander, Shanwick", 0, 0, false, "1030-2130 1000-1800", "Gander Radio (Gander,NL, Canada) 1030-2130\nShanwick Radio (Shannon-Urlanmore, Ireland) 1000-1800\n"},
+    {13291000, "13291 kHz - NAT-B, NAT-D, NAT-F - Shanwick, Iceland", 0, 0, false, "1000-1800 0900-2100", "Shanwick Radio (Shannon-Urlanmore, Ireland) 1000-1800\nIceland Radio (Reykjavik-Breidholt, Iceland) 0900-2100\n"},
+    {13306000, "13306 kHz - NAT-C, NAT-A - Iceland, New York", 0, 0, false, "0000-2400", "Iceland Radio (Reykjavik-Breidholt, Iceland) 0900-2100\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {13354000, "13354 kHz - NAT-E - Santa Maria, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 1100-1900\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {17946000, "17946 kHz - NAT-A, NAT-B, NAT-E, NAT-C - Santa Maria, Shanwick, New York", 0, 0, false, "0000-2400", "Santa Maria Radio (Santa Maria Airport, Azores) 0600-1800\nShanwick Radio (Shannon-Urlanmore, Ireland) 1000-1800\nNew York Oceanic (Riverhead,NY, USA) 0000-2400\n"},
+    {0, "AFI - África", 0, 0, false},
+    {5517000, "5517 kHz - AFI-3 - Tripoli, Mogadishu", 0, 0, false, "0000-2400", "Tripoli Radio (Tripoli Airport, Libya) 0000-2400\nMogadishu Radio (Mogadishu Airport, Somalia) 0000-2400\n"},
+    {5652000, "5652 kHz - AFI-2 - Algiers", 0, 0, false, "0000-2400", "Algiers Radio (Algiers, Algeria) 0000-2400\n"},
+    {5658000, "5658 kHz - AFI-3, INO-1, MID-2 - Mumbai", 0, 0, false, "0000-2400", "Mumbai Radio (Mumbai, India) 0000-2400\n"},
+    {8873000, "8873 kHz - AFI-2 - Niamey, Ndjamena", 0, 0, false, "0000-2400", "Niamey Radio (Niamey Airport, Niger) 0000-2400\nNdjamena Radio (Ndjamena Airport, Chad) 0000-2400\n"},
+    {8879000, "8879 kHz - AFI-3, INO-1, MID-2 - Mumbai", 0, 0, false, "0000-2400", "Mumbai Radio (Mumbai, India) 0000-2400\n"},
+    {8894000, "8894 kHz - AFI-2 - Algiers, Nouakchott, Niamey +1", 0, 0, false, "0000-2400", "Algiers Radio (Algiers, Algeria) 0000-2400\nNouakchott Radio (Nouakchott Airport, Mauritania) 0000-2400\nNiamey Radio (Niamey Airport, Niger) 0000-2400\nNdjamena Radio (Ndjamena Airport, Chad) 0000-2400\n"},
+    {8903000, "8903 kHz - AFI-4 - Kinshasa, Brazzaville, Accra +2", 0, 0, false, "0000-2400", "Kinshasa Radio (Kinshasa-Ndjii, Congo Dem.Rep.) 0000-2400\nBrazzaville Radio (Brazzaville, Congo) 0000-2400\nAccra Radio (Accra-Ayawaso Airport, Ghana) 0000-2400\nNiamey Radio (Niamey Airport, Niger) 0000-2400\nNdjamena Radio (Ndjamena Airport, Chad) 0000-2400\n"},
+    {8948000, "8948 kHz - AFI-3, INO-1 - Mumbai", 0, 0, false, "0000-2400", "Mumbai Radio (Mumbai, India) 0000-2400\n"},
+    {10018000, "10018 kHz - AFI-3, INO-1, MID-2 - Mumbai", 0, 0, false, "0000-2400", "Mumbai Radio (Mumbai, India) 0000-2400\n"},
+    {11300000, "11300 kHz - AFI-3 - Cairo, Addis Ababa, Nairobi +6", 0, 0, false, "0000-2400", "Cairo Radio (Cairo Airport, Egypt) 0000-2400\nAddis Ababa Radio (Addia Ababa Airport, Ethiopia) 0000-2400\nNairobi Radio (Nairobi Airport, Kenya) 0000-2400\nBenghazi Radio (Benghazi Airport, Libya) 0000-2400\nTripoli Radio (Tripoli Airport, Libya) 0000-2400\nKhartoum Radio (Khartoum Airport, Sudan) 0000-2400\nMahe Radio (Mahe-Anse des Genets AP, Seychelles) 0000-2400\nMogadishu Radio (Mogadishu Airport, Somalia) 0000-2400\nJuba Radio (Juba Airport, Southern Sudan) 0000-2400\n"},
+    {13273000, "13273 kHz - AFI-2 - Algiers", 0, 0, false, "0000-2400", "Algiers Radio (Algiers, Algeria) 0000-2400\n"},
+    {13288000, "13288 kHz - AFI-3 - Mogadishu", 0, 0, false, "0000-2400", "Mogadishu Radio (Mogadishu Airport, Somalia) 0000-2400\n"},
+    {13315000, "13315 kHz - AFI-4 - Johannesburg", 0, 0, false, "0000-2400", "Johannesburg Radio (Johannesburg-Tambo, South Africa) 0000-2400\n"},
+    {13357000, "13357 kHz - AFI-1 - Casablanca", 0, 0, false, "0000-2400", "Casablanca Radio (Casablanca-Nouasseur AP, Morocco) 0000-2400\n"},
+    {0, "MID - Oriente Médio e Ásia Central", 0, 0, false},
+    {3270000, "3270 kHz - MID-3 - Russian Aero Network CIV", 0, 0, false, "0000-2400", "Russian Aero Network CIV (Almaty Airport, Kazakhstan) 0000-2400\n"},
+    {3467000, "3467 kHz - MID-2, MID-3 - Kabul, Lahore, Samarkand +1", 0, 0, false, "0000-2400", "Kabul Radio (Kabul Airport, Afghanistan) 0000-2400\nLahore Radio (Lahore Airport, Pakistan) 0000-2400\nSamarkand Radio (Samarkand, Uzbekistan) 0000-2400\nTashkent Radio (Tashkent Airport, Uzbekistan) 0000-2400\n"},
+    {4669000, "4669 kHz - MID-3 - Aktyubinsk, Tashkent", 0, 0, false, "0000-2400", "Aktyubinsk Radio (Aktyubinsk Airport, Kazakhstan) 0000-2400\nTashkent Radio (Tashkent Airport, Uzbekistan) 0000-2400\n"},
+    {5658000, "5658 kHz - MID-2, MID-3 - Lahore, Tashkent", 0, 0, false, "0000-2400", "Lahore Radio (Lahore Airport, Pakistan) 0000-2400\nTashkent Radio (Tashkent Airport, Uzbekistan) 0000-2400\n"},
+    {8292500, "8292,5 kHz - MID-2 - Oman Air Force", 0, 0, false, "0000-2400", "Oman Air Force (Muscat, Oman) 0000-2400\n"},
+    {10018000, "10018 kHz - MID-2, SEA-1, MID-3 - Kabul, Karachi, Lahore +2", 0, 0, false, "0000-2400", "Kabul Radio (Kabul Airport, Afghanistan) 0000-2400\nKarachi Radio (Karachi Airport, Pakistan) 0000-2400\nLahore Radio (Lahore Airport, Pakistan) 0000-2400\nSamarkand Radio (Samarkand, Uzbekistan) 0000-2400\nTashkent Radio (Tashkent Airport, Uzbekistan) 0000-2400\n"},
+    {0, "INO - Oceano Índico", 0, 0, false},
+    {5634000, "5634 kHz - INO-1 - Mauritius, Mahe", 0, 0, false, "0000-2400", "Mauritius Radio (Plaine Magnien Airport, Mauritius) 0000-2400\nMahe Radio (Mahe-Anse des Genets AP, Seychelles) 0000-2400\n"},
+    {13306000, "13306 kHz - INO-1 - Brisbane", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\n"},
+    {0, "SEA - Sudeste da Ásia", 0, 0, false},
+    {2947000, "2947 kHz - SEA-1 - Dhaka", 0, 0, false, "0000-2400", "Dhaka Radio (Dhaka Airport, Bangladesh) 0000-2400\n"},
+    {3470000, "3470 kHz - SEA-3, SEA-1 - Brisbane, Colombo, Jakarta +1", 0, 0, false, "0000-2400", "Brisbane Radio (Brisbane,QLD, Australia) 0000-2400\nColombo Radio (Colombo Airport, Sri Lanka) 0000-2400\nJakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\n"},
+    {3491000, "3491 kHz - SEA-1 - Dhaka", 0, 0, false, "0000-2400", "Dhaka Radio (Dhaka Airport, Bangladesh) 0000-2400\n"},
+    {5634000, "5634 kHz - SEA-3 - Brisbane", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\n"},
+    {5655000, "5655 kHz - SEA-2 - Manila", 0, 0, false, "0000-2400", "Manila Radio (Manila Airport, Philippines) 0000-2400\n"},
+    {5670000, "5670 kHz - SEA-1 - Colombo, Chennai, Male +1", 0, 0, false, "0000-2400", "Colombo Radio (Colombo Airport, Sri Lanka) 0000-2400\nChennai Radio (Chennai Airport, India) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\nYangon Radio (Yangon, Myanmar) 0000-2400\n"},
+    {6556000, "6556 kHz - SEA-3, SEA-1, SEA-2 - Brisbane, Kolkata, Jakarta +3", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\nKolkata Radio (Kolkata, India) 0000-2400\nJakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\nYangon Radio (Yangon, Myanmar) 0000-2400\nSingapore Radio (Singapore-Pulau Tekong, Singapore) 0000-2400\n"},
+    {6655000, "6655 kHz - SEA-1 - Chennai", 0, 0, false, "0000-2400", "Chennai Radio (Chennai Airport, India) 0000-2400\n"},
+    {8861000, "8861 kHz - SEA-1 - Chennai", 0, 0, false, "0000-2400", "Chennai Radio (Chennai Airport, India) 0000-2400\n"},
+    {8942000, "8942 kHz - SEA-2 - Manila, Singapore", 0, 0, false, "0000-2400", "Manila Radio (Manila Airport, Philippines) 0000-2400\nSingapore Radio (Singapore-Pulau Tekong, Singapore) 0000-2400\n"},
+    {10066000, "10066 kHz - SEA-1, SEA-3 - Dhaka, Kolkata, Jakarta +1", 0, 0, false, "0000-2400", "Dhaka Radio (Dhaka Airport, Bangladesh) 0000-2400\nKolkata Radio (Kolkata, India) 0000-2400\nJakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nYangon Radio (Yangon, Myanmar) 0000-2400\n"},
+    {11285000, "11285 kHz - SEA-1 - Colombo, Chennai, Male", 0, 0, false, "0000-2400", "Colombo Radio (Colombo Airport, Sri Lanka) 0000-2400\nChennai Radio (Chennai Airport, India) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\n"},
+    {11396000, "11396 kHz - SEA-3, SEA-2 - Brisbane, Jakarta, Manila", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\nJakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nManila Radio (Manila Airport, Philippines) 0000-2400\n"},
+    {13318000, "13318 kHz - SEA-3, SEA-1 - Brisbane, Jakarta, Male", 0, 0, false, "0000-2400", "Brisbane Radio (Brisbane,QLD, Australia) 0000-2400\nJakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\n"},
+    {17907000, "17907 kHz - SEA-1, SEA-3 - Jakarta, Male", 0, 0, false, "0000-2400", "Jakarta Radio (Jakarta Airport, Indonesia) 0000-2400\nMale Radio (Male-Hulmumale Airport, Maledives) 0000-2400\n"},
+    {0, "CEP - Pacífico Central-Leste (San Francisco)", 0, 0, false},
+    {5547000, "5547 kHz - CEP-2 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {5574000, "5574 kHz - CEP-1 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {6673000, "6673 kHz - CEP-1 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8843000, "8843 kHz - CEP-1 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {10057000, "10057 kHz - CEP-1 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {11282000, "11282 kHz - CEP-2 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13288000, "13288 kHz - CEP-1, CEP-2 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13354000, "13354 kHz - CEP-1 - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {17904000, "17904 kHz - CEP, CWP, NP - San Francisco", 0, 0, false, "2000-1400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 2000-1400\n"},
+    {0, "CWP - Pacífico Central-Oeste (Tóquio, Manila, San Francisco)", 0, 0, false},
+    {2998000, "2998 kHz - CWP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {3455000, "3455 kHz - CWP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {4666000, "4666 kHz - CWP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {5652000, "5652 kHz - CWP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {6532000, "6532 kHz - CWP - Tokyo, Seoul, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSeoul Radio (Seoul-Incheon, Korea-South) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8870000, "8870 kHz - CWP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8903000, "8903 kHz - CWP - Tokyo, Manila, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nManila Radio (Manila Airport, Philippines) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {11309000, "11309 kHz - CWP - Manila", 0, 0, false, "0000-2400", "Manila Radio (Manila Airport, Philippines) 0000-2400\n"},
+    {11384000, "11384 kHz - CWP - Tokyo, Manila, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nManila Radio (Manila Airport, Philippines) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13300000, "13300 kHz - CWP - Tokyo, Manila, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nManila Radio (Manila Airport, Philippines) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {17904000, "17904 kHz - CWP, NP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {21985000, "21985 kHz - CWP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {0, "NP - Pacífico Norte (Tóquio, San Francisco)", 0, 0, false},
+    {2932000, "2932 kHz - NP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {3467000, "3467 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {5628000, "5628 kHz - NP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {5643000, "5643 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {5667000, "5667 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {6655000, "6655 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8867000, "8867 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8915000, "8915 kHz - NP - Tokyo", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\n"},
+    {8951000, "8951 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {10048000, "10048 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {11330000, "11330 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13261000, "13261 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13273000, "13273 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {13339000, "13339 kHz - NP - San Francisco", 0, 0, false, "0000-2400", "San Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {17946000, "17946 kHz - NP - Tokyo, San Francisco", 0, 0, false, "0000-2400", "Tokyo Radio (Kagoshima, Japan) 0000-2400\nSan Francisco Radio (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {0, "SP - Pacífico Sul (Brisbane, Nadi, Auckland, Tahiti)", 0, 0, false},
+    {3467000, "3467 kHz - SP - Brisbane, Nadi", 0, 0, false, "0000-2400", "Brisbane Radio (Brisbane,QLD, Australia) 0000-2400\nNadi Radio (Nadi, Fiji) 0000-2400\n"},
+    {5643000, "5643 kHz - SP - Nadi, Auckland", 0, 0, false, "0000-2400", "Nadi Radio (Nadi, Fiji) 0000-2400\nAuckland Radio (Auckland-Wiroa Island, New Zealand) 0000-2400\n"},
+    {8867000, "8867 kHz - SP - Brisbane, Nadi, Auckland +1", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\nNadi Radio (Nadi, Fiji) 0000-2400\nAuckland Radio (Auckland-Wiroa Island, New Zealand) 0000-2400\nTahiti Radio (Papeete, French Polynesia) 0000-2400\n"},
+    {8879000, "8879 kHz - SP - Brisbane", 0, 0, false, "0000-2400", "Brisbane Radio (Broken Hill,NSW, Australia) 0000-2400\n"},
+    {10084000, "10084 kHz - SP - Auckland", 0, 0, false, "0000-2400", "Auckland Radio (Auckland-Wiroa Island, New Zealand) 0000-2400\n"},
+    {13261000, "13261 kHz - SP - Brisbane, Nadi, Auckland +1", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\nNadi Radio (Nadi, Fiji) 0000-2400\nAuckland Radio (Auckland-Wiroa Island, New Zealand) 0000-2400\nTahiti Radio (Papeete, French Polynesia) 0000-2400\n"},
+    {17904000, "17904 kHz - SP - Nadi, Auckland", 0, 0, false, "0000-2400", "Nadi Radio (Nadi, Fiji) 0000-2400\nAuckland Radio (Auckland-Wiroa Island, New Zealand) 0000-2400\n"},
+    {0, "NCA - Rússia / Ásia do Norte", 0, 0, false},
+    {3461000, "3461 kHz - NCA-3 - Ekimchan, Khabarovsk", 0, 0, false, "0000-2400", "Ekimchan Radio (Ekimchan Airport, Russia) 0000-2400\nKhabarovsk Radio (Khabarovsk, Russia) 0000-2400\n"},
+    {4672000, "4672 kHz - NCA-1 - Vologda", 0, 0, false, "0000-2400", "Vologda Radio (Vologda, Russia) 0000-2400\n"},
+    {5557000, "5557 kHz - NCA-3 - Khabarovsk", 0, 0, false, "0000-2400", "Khabarovsk Radio (Khabarovsk, Russia) 0000-2400\n"},
+    {5664000, "5664 kHz - NCA-3 - Khabarovsk", 0, 0, false, "0000-2400", "Khabarovsk Radio (Khabarovsk, Russia) 0000-2400\n"},
+    {6589000, "6589 kHz - NCA-3 - Ekimchan", 0, 0, false, "0000-2400", "Ekimchan Radio (Ekimchan Airport, Russia) 0000-2400\n"},
+    {6592000, "6592 kHz - NCA-2, NCA - Irkutsk, Moskva", 0, 0, false, "0000-2400", "Irkutsk Radio (Irkutsk Airport, Russia) 0000-2400\nMoskva Radio (Moskva, Russia) 0000-2400\n"},
+    {0, "LDOC - companhias aéreas (controle operacional)", 0, 0, false},
+    {3040000, "3040 kHz - LDOC - Salekhard", 0, 0, false, "0000-2400", "Salekhard Radio (Salekhard Airport, Russia) 0000-2400\n"},
+    {3494000, "3494 kHz - LDOC - Stockholm", 0, 0, false, "0000-2400", "LDOC Stockholm (Stockholm-Arlanda, Sweden) 0000-2400\n"},
+    {4687000, "4687 kHz - LDOC - TAROM Bucharest", 0, 0, false, "0000-2400", "LDOC TAROM Bucharest (Bucharest Airport, Romania) 0000-2400\n"},
+    {5145000, "5145 kHz - LDOC - Samara", 0, 0, false, "0000-2400", "Samara Radio (Samara-Kurumoch, Russia) 0000-2400\n"},
+    {5529000, "5529 kHz - LDOC - Iberia", 0, 0, false, "0000-2400", "LDOC Iberia (Madrid, Spain) 0000-2400\n"},
+    {5538000, "5538 kHz - LDOC - Gulf Air", 0, 0, false, "0000-2400", "LDOC Gulf Air (Manama-Galali, Bahrain) 0000-2400\n"},
+    {5541000, "5541 kHz - LDOC - Stockholm", 0, 0, false, "0000-2400", "LDOC Stockholm (Stockholm-Arlanda, Sweden) 0000-2400\n"},
+    {5637000, "5637 kHz - LDOC - TAROM Bucharest", 0, 0, false, "0000-2400", "LDOC TAROM Bucharest (Bucharest Airport, Romania) 0000-2400\n"},
+    {5646000, "5646 kHz - LDOC - Saudia", 0, 0, false, "0000-2400", "LDOC Saudia (Jeddah Airport, Saudi Arabia) 0000-2400\n"},
+    {6526000, "6526 kHz - LDOC - Air Jamaica", 0, 0, false, "0000-2400", "LDOC Air Jamaica (Kinston, Jamaica) 0000-2400\n"},
+    {6640000, "6640 kHz - LDOC - New York, San Francisco", 0, 0, false, "0000-2400", "LDOC New York (Riverhead,NY, USA) 0000-2400\nLDOC San Francisco (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8829000, "8829 kHz - LDOC - Ankara, Istanbul THY", 0, 0, false, "0000-2400", "LDOC Ankara (Ankara, Turkiye) 0000-2400\nLDOC Istanbul THY (Istanbul-Yesilkoy, Turkiye) 0000-2400\n"},
+    {8855000, "8855 kHz - LDOC - Cayenne", 0, 0, false, "0000-2400", "LDOC Cayenne (Cayenne Airport, Guyana) 0000-2400\n"},
+    {8878000, "8878 kHz - LDOC - TAROM Bucharest", 0, 0, false, "0000-2400", "LDOC TAROM Bucharest (Bucharest Airport, Romania) 0000-2400\n"},
+    {8927000, "8927 kHz - LDOC - Ethiopian Air", 0, 0, false, "0000-2400", "LDOC Ethiopian Air (Addia Ababa Airport, Ethiopia) 0000-2400\n"},
+    {8930000, "8930 kHz - LDOC - PIA Karachi, Stockholm", 0, 0, false, "0000-2400", "LDOC PIA Karachi (Karachi, Pakistan) 0000-2400\nLDOC Stockholm (Stockholm-Arlanda, Sweden) 0000-2400\n"},
+    {8933000, "8933 kHz - LDOC - New York, San Francisco", 0, 0, false, "0000-2400", "LDOC New York (Riverhead,NY, USA) 0000-2400\nLDOC San Francisco (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {8936000, "8936 kHz - LDOC - Iberia", 0, 0, false, "0000-2400", "LDOC Iberia (Madrid, Spain) 0000-2400\n"},
+    {8989000, "8989 kHz - LDOC - Saudia", 0, 0, false, "0000-2400", "LDOC Saudia (Jeddah Airport, Saudi Arabia) 0000-2400\n"},
+    {9003000, "9003 kHz - LDOC - Royal Jordan Air", 0, 0, false, "0000-2400", "LDOC Royal Jordan Air (Al Jiza-Alia Airport, Jordan) 0000-2400\n"},
+    {10021000, "10021 kHz - LDOC - TAROM Bucharest", 0, 0, false, "0400-2000", "LDOC TAROM Bucharest (Bucharest Airport, Romania) 0400-2000\n"},
+    {10027000, "10027 kHz - LDOC - Iberia", 0, 0, false, "0000-2400", "LDOC Iberia (Madrid, Spain) 0000-2400\n"},
+    {10072000, "10072 kHz - LDOC - Air India, Seoul", 0, 0, false, "0000-2400", "LDOC Air India (Mumbai, India) 0000-2400\nSeoul Radio LDOC (Seoul-Incheon, Korea-South) 0000-2400\n"},
+    {10946000, "10946 kHz - LDOC - Air France", 0, 0, false, "0000-2400", "LDOC Air France (Paris, France) 0000-2400\n"},
+    {11190000, "11190 kHz - LDOC - Teheran", 0, 0, false, "0000-2400", "LDOC Teheran (Teheran, Iran) 0000-2400\n"},
+    {11206000, "11206 kHz - LDOC - Istanbul THY", 0, 0, false, "0000-2400", "LDOC Istanbul THY (Istanbul-Yesilkoy, Turkiye) 0000-2400\n"},
+    {11256000, "11256 kHz - LDOC - Ethiopian Air", 0, 0, false, "0000-2400", "LDOC Ethiopian Air (Addia Ababa Airport, Ethiopia) 0000-2400\n"},
+    {11288000, "11288 kHz - LDOC - Saudia", 0, 0, false, "0000-2400", "LDOC Saudia (Jeddah Airport, Saudi Arabia) 0000-2400\n"},
+    {11342000, "11342 kHz - LDOC - JAL Tokyo, New York, San Francisco", 0, 0, false, "0000-2400", "LDOC JAL Tokyo (Tokyo, Japan) 0000-2400\nLDOC New York (Riverhead,NY, USA) 0000-2400\nLDOC San Francisco (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {11345000, "11345 kHz - LDOC - Stockholm", 0, 0, false, "0000-2400", "LDOC Stockholm (Stockholm-Arlanda, Sweden) 0000-2400\n"},
+    {11351000, "11351 kHz - LDOC - PIA Karachi", 0, 0, false, "0000-2400", "LDOC PIA Karachi (Karachi, Pakistan) 0000-2400\n"},
+    {13222000, "13222 kHz - LDOC - Istanbul THY", 0, 0, false, "0000-2400", "LDOC Istanbul THY (Istanbul-Yesilkoy, Turkiye) 0000-2400\n"},
+    {13324000, "13324 kHz - LDOC - JAL Tokyo", 0, 0, false, "0000-2400", "LDOC JAL Tokyo (Tokyo, Japan) 0000-2400\n"},
+    {13327000, "13327 kHz - LDOC - Iberia", 0, 0, false, "0000-2400", "LDOC Iberia (Madrid, Spain) 0000-2400\n"},
+    {13330000, "13330 kHz - LDOC - Brisbane, Nairobi, Middle East Air", 0, 0, false, "0000-2400", "Brisbane Radio (Townsville-Pallarenda,QLD, Australia) 0000-2400\nLDOC Nairobi (Nairobi Airport, Kenya) 0000-2400\nLDOC Middle East Air (Beirut, Lebanon) 0000-2400\n"},
+    {13339000, "13339 kHz - LDOC - Saudia", 0, 0, false, "0000-2400", "LDOC Saudia (Jeddah Airport, Saudi Arabia) 0000-2400\n"},
+    {13342000, "13342 kHz - LDOC - Stockholm", 0, 0, false, "0000-2400", "LDOC Stockholm (Stockholm-Arlanda, Sweden) 0000-2400\n"},
+    {13345000, "13345 kHz - LDOC - Praia Aero, TAROM Bucharest", 0, 0, false, "0000-2400", "LDOC Praia Aero (Praia Airport, Cape Verde) 0000-2400\nLDOC TAROM Bucharest (Bucharest Airport, Romania) 0400-2000\n"},
+    {13348000, "13348 kHz - LDOC - New York, San Francisco", 0, 0, false, "0000-2400", "LDOC New York (Riverhead,NY, USA) 0000-2400\nLDOC San Francisco (San Francisco-Dixon,CA, USA) 0000-2400\n"},
+    {15024000, "15024 kHz - LDOC - Moskva", 0, 0, false, "0000-2400", "Moskva Radio (Moskva, Russia) 0000-2400\n"},
+    {17916000, "17916 kHz - LDOC - Stockholm", 0, 0, false, "0500-1800", "LDOC Stockholm (Stockholm-Arlanda, Sweden) 0500-1800\n"},
+    {17925000, "17925 kHz - LDOC - New York", 0, 0, false, "0000-2400", "LDOC New York (Riverhead,NY, USA) 0000-2400\n"},
+    {17931000, "17931 kHz - LDOC - Ethiopian Air", 0, 0, false, "0000-2400", "LDOC Ethiopian Air (Addia Ababa Airport, Ethiopia) 0000-2400\n"},
+    {17940000, "17940 kHz - LDOC - Iberia", 0, 0, false, "0600-2100", "LDOC Iberia (Madrid, Spain) 0600-2100\n"},
+    {21949000, "21949 kHz - LDOC - JAL Tokyo", 0, 0, false, "0000-2400", "LDOC JAL Tokyo (Tokyo, Japan) 0000-2400\n"},
+};
 // OLIVIA - frequencias de chamada do site oliviadigitalmode.org (20/10/2026).
 // A frequencia publicada e o CENTRO do sinal: o VFO (USB) fica 1500 Hz abaixo,
 // e o conjunto de tons (centrado em 1500 Hz no audio) cai na parte alta da
@@ -3745,6 +3971,10 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
         if (m != "USB") mudarModo("USB");
         if (r_.banda() < 3000) r_.setBanda(3000);
         oliviaEncolher_ = true;
+    } else if (t == Decoders::SELCAL) {
+        // fonia aeronautica em HF: USB, e os tons vao de 312 a 1558 Hz
+        if (m != "USB") mudarModo("USB");
+        if (r_.banda() < 2800) r_.setBanda(2800);
     } else if (t == Decoders::STANAG) {
         // a portadora unica de 1800 Hz pede USB com banda folgada (o sinal
         // vai e vem ~1,65 kHz em volta de 1800 Hz)
@@ -4495,19 +4725,94 @@ void Ui::painelFt8()
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, IM_COL32(0x30, 0xa0, 0x50, 255));
     ImGui::ProgressBar(p, ImVec2(170 * s_, 0), rot);
     ImGui::PopStyleColor();
+
+    // o QTH de quem ouve: a coluna km da tabela e a distancia daqui
+    if (!ft8QthLido_) {
+        ft8QthLido_ = true;
+        std::snprintf(ft8Qth_, sizeof ft8Qth_, "%s", Config::instance().str("ft8_qth").c_str());
+    }
+    double qLa = 0, qLo = 0;
+    std::string origem;
+    const bool temQth = ft8MeuQth(qLa, qLo, &origem);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("Meu QTH"));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90 * s_);
+    const std::string dica = temQth ? ft8geo::grausParaGrade(qLa, qLo) : std::string("GG87jb");
+    if (ImGui::InputTextWithHint("##ft8qth", dica.c_str(), ft8Qth_, sizeof ft8Qth_,
+                                 ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_CharsNoBlank)) {
+        double a = 0, b = 0;
+        const std::string q = ft8Qth_;
+        if (q.empty() || ft8geo::gradeParaGraus(q, a, b)) {   // so grava locator completo (4, 6 ou 8)
+            Config::instance().set("ft8_qth", q);
+            Config::instance().salvar();
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", T("Locator da sua esta\xC3\xA7\xC3\xA3o (ex.: GG87 ou GG87jb): a coluna km \xC3\xA9 a dist\xC3\xA2ncia daqui at\xC3\xA9 a esta\xC3\xA7\xC3\xA3o que transmite.\n"
+                                  "Vazio = usa o centro do RADAR A\xC3\x89REO ou o QTH dos SAT\xC3\x89LITES, se j\xC3\xA1 estiverem definidos."));
+    ImGui::SameLine();
+    if (temQth)
+        ImGui::TextDisabled(T("agora: %s (%s)"), ft8geo::grausParaGrade(qLa, qLo).c_str(), origem.c_str());
+    else
+        ImGui::TextColored(ImVec4(1.f, 0.71f, 0.16f, 1.f), "%s", T("digite o seu locator para ver a dist\xC3\xA2ncia (km)"));
+
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", T("Só recepção, em USB. O relógio do PC precisa estar certo (erro menor que 1 s): Windows > Data e hora > Sincronizar agora."));
     ImGui::TextWrapped("%s", T("DT = atraso do sinal em segundos; perto de 0 = relógio certo. Se todos os DT passarem de +1 s (ou de -1 s), acerte o relógio."));
     ImGui::PopStyleColor();
 }
 
+// Mensagem nova do FT8/FT4: guarda quem transmitiu e a grade (e lembra a
+// grade da estacao para as proximas mensagens dela, que nao trazem grade).
+void Ui::ft8Chegou(Ft8Core::Mensagem&& m)
+{
+    Ft8Extra ex;
+    ft8geo::transmissor(m.texto, ex.ind, ex.grade);
+    if (!ex.ind.empty() && !ex.grade.empty()) {
+        if (ft8Grades_.size() > 20000) ft8Grades_.clear();
+        ft8Grades_[ex.ind] = ex.grade;
+    }
+    ft8Msgs_.push_back(std::move(m));
+    ft8Extra_.push_back(std::move(ex));
+}
+
+// QTH de quem ouve: o digitado no painel do FT8; sem ele, o centro do radar
+// aereo; sem ele, o QTH dos satelites.
+bool Ui::ft8MeuQth(double& lat, double& lon, std::string* origem)
+{
+    auto& c = Config::instance();
+    if (ft8geo::gradeParaGraus(c.str("ft8_qth"), lat, lon)) {
+        if (origem) *origem = T("digitado aqui");
+        return true;
+    }
+    if (!c.str("radar_lat").empty() && !c.str("radar_lon").empty()) {
+        lat = c.dbl("radar_lat"); lon = c.dbl("radar_lon");
+        if (origem) *origem = T("centro do RADAR A\xC3\x89REO");
+        return true;
+    }
+    if (!c.str("sat_lat").empty() && !c.str("sat_lon").empty()) {
+        lat = c.dbl("sat_lat"); lon = c.dbl("sat_lon");
+        if (origem) *origem = T("QTH dos SAT\xC3\x89LITES");
+        return true;
+    }
+    return false;
+}
+
 void Ui::tabelaFt8(bool chegou)
 {
+    // ft8Extra_ anda junto com ft8Msgs_; se um dia sair do passo, refaz
+    if (ft8Extra_.size() != ft8Msgs_.size()) {
+        ft8Extra_.clear();
+        for (const auto& m : ft8Msgs_) { Ft8Extra ex; ft8geo::transmissor(m.texto, ex.ind, ex.grade); ft8Extra_.push_back(ex); }
+    }
+    double qLa = 0, qLo = 0;
+    const bool temQth = ft8MeuQth(qLa, qLo);
     const bool ft4 = decTipo_ == Decoders::FT4;
     ImGui::Checkbox(T("Só CQ"), &ft8SoCq_);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(200 * s_);
-    ImGui::InputTextWithHint("##ft8busca", T("procurar (indicativo, grade...)"), ft8Busca_, sizeof ft8Busca_,
+    ImGui::SetNextItemWidth(240 * s_);
+    ImGui::InputTextWithHint("##ft8busca", T("procurar (indicativo, grade, pa\xC3\xADs...)"), ft8Busca_, sizeof ft8Busca_,
                              ImGuiInputTextFlags_CharsUppercase);
     std::vector<int> vis;
     vis.reserve(ft8Msgs_.size());
@@ -4515,7 +4820,16 @@ void Ui::tabelaFt8(bool chegou)
     for (int i = 0; i < (int)ft8Msgs_.size(); ++i) {
         const auto& m = ft8Msgs_[i];
         if (ft8SoCq_ && m.texto.rfind("CQ ", 0) != 0) continue;
-        if (!busca.empty() && m.texto.find(busca) == std::string::npos) continue;
+        if (!busca.empty() && m.texto.find(busca) == std::string::npos) {
+            // tambem pelo pais de quem transmite (em maiusculas: "BRASIL", "JAP")
+            const auto& ex = ft8Extra_[i];
+            if (ex.ind.empty()) continue;
+            const auto& pa = ft8geo::paisDoIndicativo(ex.ind);
+            if (!pa.ok) continue;
+            std::string up = pa.nome;
+            for (char& ch : up) ch = (char)std::toupper((unsigned char)ch);
+            if (up.find(busca) == std::string::npos) continue;
+        }
         vis.push_back(i);
     }
     ImGui::SameLine();
@@ -4524,7 +4838,7 @@ void Ui::tabelaFt8(bool chegou)
     const ImGuiTableFlags fl = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
                                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable;
     ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x02, 0x06, 0x03, 255));
-    if (ImGui::BeginTable("##ft8tab", 5, fl, ImVec2(0, 0))) {
+    if (ImGui::BeginTable("##ft8tab", 7, fl, ImVec2(0, 0))) {
         const bool noFim = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 30 * s_;
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("UTC", ImGuiTableColumnFlags_WidthFixed, 66 * s_);
@@ -4532,6 +4846,8 @@ void Ui::tabelaFt8(bool chegou)
         ImGui::TableSetupColumn("DT", ImGuiTableColumnFlags_WidthFixed, 40 * s_);
         ImGui::TableSetupColumn("Hz", ImGuiTableColumnFlags_WidthFixed, 48 * s_);
         ImGui::TableSetupColumn(T("Mensagem"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(T("Pa\xC3\xADs"), ImGuiTableColumnFlags_WidthFixed, 150 * s_);
+        ImGui::TableSetupColumn("km", ImGuiTableColumnFlags_WidthFixed, 64 * s_);
         ImGui::TableHeadersRow();
         ImGui::PushFont(f_.mono);
         ImGuiListClipper clip;
@@ -4554,6 +4870,38 @@ void Ui::tabelaFt8(bool chegou)
                 ImGui::TableSetColumnIndex(2); ImGui::Text("%4.1f", m.dt);
                 ImGui::TableSetColumnIndex(3); ImGui::Text("%4.0f", m.hz);
                 ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(m.texto.c_str());
+                // Pais e distancia de quem transmite
+                const auto& ex = ft8Extra_[vis[r]];
+                const ft8geo::InfoPais* pa = ex.ind.empty() ? nullptr : &ft8geo::paisDoIndicativo(ex.ind);
+                ImGui::TableSetColumnIndex(5);
+                if (pa && pa->ok) {
+                    ImGui::TextUnformatted(pa->nome.c_str());
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s - %s", ex.ind.c_str(), pa->nome.c_str());
+                }
+                ImGui::TableSetColumnIndex(6);
+                if (temQth && !ex.ind.empty()) {
+                    std::string g = ex.grade;
+                    if (g.empty()) {
+                        auto it = ft8Grades_.find(ex.ind);
+                        if (it != ft8Grades_.end()) g = it->second;
+                    }
+                    double la = 0, lo = 0;
+                    const bool pelaGrade = !g.empty() && ft8geo::gradeParaGraus(g, la, lo);
+                    if (pelaGrade || (pa && pa->ok)) {
+                        if (!pelaGrade) { la = pa->lat; lo = pa->lon; }
+                        char km[24];
+                        std::snprintf(km, sizeof km, "%s%.0f", pelaGrade ? "" : "~", ft8geo::distanciaKm(qLa, qLo, la, lo));
+                        const float w = ImGui::CalcTextSize(km).x;     // alinhado a direita
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - w));
+                        if (!pelaGrade) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        ImGui::TextUnformatted(km);
+                        if (!pelaGrade) ImGui::PopStyleColor();
+                        if (ImGui::IsItemHovered()) {
+                            if (pelaGrade) ImGui::SetTooltip(T("Pela grade %s que a esta\xC3\xA7\xC3\xA3o mandou"), g.c_str());
+                            else ImGui::SetTooltip(T("Aproximada: centro de %s (a esta\xC3\xA7\xC3\xA3o ainda n\xC3\xA3o mandou a grade)"), pa->nome.c_str());
+                        }
+                    }
+                }
                 ImGui::PopStyleColor();
             }
         }
@@ -4681,7 +5029,7 @@ void Ui::janelaDecoders()
     if (ImGui::BeginCombo("##dectipo", Decoders::nome((Decoders::Tipo)decTipo_), ImGuiComboFlags_HeightLarge)) {
         static const int kOrdem[] = {Decoders::NENHUM, Decoders::CW, Decoders::FT8, Decoders::FT4, Decoders::RTTY, Decoders::SITORB, Decoders::PACTOR, Decoders::DSC,
                                      Decoders::ALE, Decoders::DMR, Decoders::TETRA, Decoders::AIS,
-                                     Decoders::APRS, Decoders::HFDL, Decoders::ACARS, Decoders::VDL2, Decoders::ADSB, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
+                                     Decoders::APRS, Decoders::HFDL, Decoders::ACARS, Decoders::VDL2, Decoders::ADSB, Decoders::SELCAL, Decoders::DRM, Decoders::SSTV, Decoders::WEFAX,
                                      Decoders::OLIVIA, Decoders::STANAG, Decoders::BPSK, Decoders::SATELITES, Decoders::ANALISE};
         static_assert(sizeof kOrdem / sizeof kOrdem[0] == Decoders::N_TIPOS, "faltou um decodificador no menu");
         for (int i : kOrdem)
@@ -4705,7 +5053,7 @@ void Ui::janelaDecoders()
     if (ImGui::Button(T("Reiniciar")) && decTipo_ != Decoders::NENHUM) escolherDecoder(decTipo_, false);
     ImGui::SameLine();
     if (ImGui::Button(T("Limpar"))) {
-        decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear();
+        decTexto_.clear(); decCol_ = 0; decLinhas_ = 0; ft8Msgs_.clear(); ft8Extra_.clear();
         // as tabelas de avioes sao registro: so o Limpar apaga
         d.adsb().limparLista(); d.adsbRede().core().limparLista(); d.acars().limparLista(); d.vdl2().limparLista(); d.hfdl().limparLista();
     }
@@ -4718,7 +5066,7 @@ void Ui::janelaDecoders()
         std::string pasta = pastaDoExe() + "\\Decodificados";
         CreateDirectoryA(pasta.c_str(), nullptr);
         SYSTEMTIME st; GetLocalTime(&st);
-         static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4", "SAT", "OLIVIA", "STAN", "PSK", "ADSB"};
+         static const char* kTag[] = {"", "CW", "RTTY", "SITORB", "DSC", "ALE", "DMR", "TETRA", "HFDL", "AIS", "APRS", "ACARS", "VDL2", "ANALISE", "DRM", "SSTV", "WEFAX", "PACTOR", "FT8", "FT4", "SAT", "OLIVIA", "STAN", "PSK", "ADSB", "SELCAL"};
         char nome[96];
         std::snprintf(nome, sizeof nome, "\\RXSDR_%s_%04d%02d%02d_%02d%02d%02d.txt",
                       decTipo_ > 0 && decTipo_ < Decoders::N_TIPOS ? kTag[decTipo_] : "DEC",
@@ -5264,6 +5612,49 @@ void Ui::janelaDecoders()
         ImGui::TextDisabled(T("Precisa de uns 10 dB de SNR em 16-QAM ou 15 dB em 64-QAM."));
         break;
     }
+    case Decoders::SELCAL: {
+        linhaCanal(kCanaisSelcall, decCanalSelcall_, false);
+        ImGui::SameLine();
+        if (ImGui::Button(T("Limpar lista"))) d.limparSelcall();
+        ImGui::TextDisabled(T("Fonia aeronáutica em HF (redes MWARA): USB com o rádio NA frequência do canal. A estação de terra chama um avião"));
+        ImGui::TextDisabled(T("com dois pulsos de 1 s, cada um com dois tons juntos (ex.: AB-CD). O código é do avião (plano de voo, campo 18 SEL/)."));
+        const auto ch = d.selcallChamadas();
+        if (ch.empty()) {
+            ImGui::TextDisabled(T("Nenhuma chamada ainda. As chamadas são espaçadas: pode levar vários minutos."));
+        } else if (ImGui::BeginTable("##selcal", 6, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
+                                     ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, ImVec2(0, 150 * s_))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn(T("Código SELCAL"), ImGuiTableColumnFlags_WidthStretch, 1.1f);
+            ImGui::TableSetupColumn(T("Hora (UTC)"), ImGuiTableColumnFlags_WidthStretch, 0.8f);
+            ImGui::TableSetupColumn(T("Vezes"), ImGuiTableColumnFlags_WidthStretch, 0.5f);
+            ImGui::TableSetupColumn(T("Desvio"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
+            ImGui::TableSetupColumn(T("Nível"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
+            ImGui::TableSetupColumn(T("Tons (Hz)"), ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableHeadersRow();
+            int id = 0;
+            for (const auto& c : ch) {
+                ImGui::PushID(id++);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                if (c.selcal32) ImGui::Text("%s  (SELCAL32)", c.codigo.c_str());
+                else ImGui::TextUnformatted(c.codigo.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("Clique com o direito para copiar o código"));
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::SetClipboardText(c.codigo.c_str());
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(c.hora.c_str());
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%d", c.vezes);
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%+.0f Hz", c.desvioHz);
+                ImGui::TableSetColumnIndex(4); ImGui::Text("%.0f dB", c.nivelDb);
+                ImGui::TableSetColumnIndex(5);
+                if (c.codigo.size() == 5)
+                    ImGui::Text("%.1f + %.1f  /  %.1f + %.1f",
+                                SelcallCore::freqTom(c.codigo[0]), SelcallCore::freqTom(c.codigo[1]),
+                                SelcallCore::freqTom(c.codigo[3]), SelcallCore::freqTom(c.codigo[4]));
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
     case Decoders::ACARS:
         botaoRadar();
         ImGui::TextDisabled(T("131,550 e 131,825 MHz ao mesmo tempo (AM). O rádio fica com o centro no meio dos dois;"));
@@ -5391,8 +5782,12 @@ void Ui::janelaDecoders()
     const std::string novo = d.pegarTexto();
     if (!novo.empty()) anexarDecTexto(novo);
     bool chegouFt8 = false;
-    for (auto& m : d.pegarFt8()) { ft8Msgs_.push_back(std::move(m)); chegouFt8 = true; }
-    if (ft8Msgs_.size() > 5000) ft8Msgs_.erase(ft8Msgs_.begin(), ft8Msgs_.begin() + (ft8Msgs_.size() - 5000));
+    for (auto& m : d.pegarFt8()) { ft8Chegou(std::move(m)); chegouFt8 = true; }
+    if (ft8Msgs_.size() > 5000) {
+        const size_t sobra = ft8Msgs_.size() - 5000;
+        ft8Msgs_.erase(ft8Msgs_.begin(), ft8Msgs_.begin() + sobra);
+        if (ft8Extra_.size() >= sobra) ft8Extra_.erase(ft8Extra_.begin(), ft8Extra_.begin() + sobra);
+    }
     if (decTipo_ == Decoders::FT8 || decTipo_ == Decoders::FT4) {
         tabelaFt8(chegouFt8);    // o texto continua em decTexto_ (Copiar / Salvar .txt)
         ImGui::End();
