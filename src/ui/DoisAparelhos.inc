@@ -148,15 +148,16 @@ void Ui::atualizarDuas()
             if (a > b) std::swap(a, b);
             float pk = -200.f;
             for (int i = a; i <= b; ++i) pk = std::max(pk, (float)fftO_.bins[i]);
-            // a mesma escala do squelch do VFO ouvido (Ui::novoQuadroFft: peakDbSql_)
-            const auto& cc = Config::instance();
-            const bool hf = (f0 + f1) * 0.5 < 30e6;
-            const float desloc = (float)(hf ? cc.num("s9_hf", -94) + 94 : cc.num("s9_vhf", -93) + 93);
-            const float db = std::clamp((pk <= -199.f ? -120.f : std::min(0.f, pk + 15.f)) - desloc, -120.f, 0.f);
+            // a mesma escala do squelch do VFO ouvido (Ui::novoQuadroFft: peakDbSql_): quanto a potencia media
+            // no filtro passa a de um canal vazio do mesmo tamanho, menos 60 (o ruido fica em -60)
+            const float pc = pisoCanal(fftO_, b - a + 1);
+            if (pc > -900.f) pisoSqlO_ = pisoSqlO_ > 1e8f ? pc : pisoSqlO_ + (pc - pisoSqlO_) * 0.08f;
+            const float db = (pk <= -199.f || pisoSqlO_ > 1e8f) ? -120.f : std::clamp(potDb(fftO_.bins, a, b, -9) - pisoSqlO_ - 60.f, -120.f, 60.f);
             static double ultAberto = 0;
             if (db >= R.sql) ultAberto = agora();
             sqlAberto = db >= R.sql || (agora() - ultAberto < sqlHang_);
         }
+        sqlAbertoO_ = sqlAberto;
         AjusteAudio a;
         a.mudo = R.mute || sendMudo_ || !O->ligado() || (!ouvirOs2_ && !monSolo_) || !sqlAberto;
         a.volume = R.af <= 0 ? 0.f : (float)(std::pow(R.af / 100.0, 1.5) * 8.0);
@@ -313,3 +314,22 @@ void Ui::faixaRx(int rx, double& f0, double& f1) const
     else { f0 = v - bw / 2; f1 = v + bw / 2; }
 }
 #endif
+
+// BUSY de um VFO: o ouvido = squelch aberto (e sinal); o outro, com dois aparelhos = o squelch DELE aberto
+// (com o squelch aberto, -90, o S-meter dele acima do ruido); no mesmo aparelho, o S-meter lido no espectro.
+bool Ui::ocupadoRx(int rx) const
+{
+    const Receptor& R = rx_[rx];
+    if (rx == ativo_) return sqlAberto_ && (R.sql > -90 || smAtual_ > 0.22f);
+#ifdef DUAS_SEM_SMOUTRO
+    const float smO = 0.f;           // este painel nao le o S-meter do outro receptor
+#else
+    const float smO = smOutro_;
+#endif
+    if (duas_) {
+        const Radio* O = outro();
+        if (!O || !O->aoVivo()) return false;
+        return R.sql > -90.f ? sqlAbertoO_ : smO > 0.30f;
+    }
+    return smO > 0.30f;
+}

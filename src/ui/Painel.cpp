@@ -625,6 +625,7 @@ void Ui::ativar(int i)
         r_->setMedirCanal(true);
         std::swap(fft_, fftO_);
         std::swap(suave_, suaveO_);
+        std::swap(pisoSqlA_, pisoSqlO_);
         quadrosOutro_ = 0;
         picoHold_.assign(suave_.size(), -200.f);
         ajPrimeiro_ = true; ajOutroPrimeiro_ = true;
@@ -895,6 +896,12 @@ void Ui::carregarPainel()
     }
     rx_[0].f = r_->vfo(); rx_[0].modo = r_->modo();      // o MAIN e o que o radio tinha
     ativo_ = 0;
+    if (c.num("sql_rel", 0) < 1) {
+        // o squelch mudou de escala (10/11/2026: dB acima do ruido - 60): o valor antigo nao vale mais;
+        // quem tinha squelch ligado fica com 10 dB acima do ruido
+        for (auto& R : rx_) if (R.sql > -90.f) R.sql = -50.f;
+        c.set("sql_rel", 1);
+    }
     txVfo_ = (int)std::clamp(c.num("p_tx", 0), 0LL, 1LL);
     att_ = (int)std::clamp(c.num("p_att", 0), 0LL, 3LL);
     pamp_ = (int)std::clamp(c.num("p_pamp", 0), 0LL, 2LL);
@@ -1115,14 +1122,14 @@ void Ui::chassi()
     texto(f_.painel, 6.2f, 1188, 10.5f, IM_COL32(0xe8, 0xb8, 0x40, 255), "HF/VHF/UHF  SDR  RECEIVER");
     texto(f_.painel, 11.f, 1482, 7.f, IM_COL32(0xc8, 0xcc, 0xd2, 255), "SDR-990S", 1.f);
     // LEDs MAIN BUSY / SUB BUSY
-    const bool aberto = r_->ligado() && r_->aoVivo() && sqlAberto_ && (sql_ > -90 || smAtual_ > 0.22f);
     auto ledBusy = [&](float x, const char* rot, bool lig) {
         texto(f_.painel, 5.8f, x + 15, 4, P_ROTULO, rot, 0.5f);
         if (lig) dl->AddRectFilled(M.p(x - 2, 11), M.p(x + 32, 19), alfa(P_VERDE, 60), M.d(2));
         dl->AddRectFilled(M.p(x, 13), M.p(x + 30, 17), lig ? P_VERDE : IM_COL32(0x1a, 0x22, 0x1c, 255), M.d(1));
     };
-    ledBusy(800, "MAIN BUSY/TX", aberto && ativo_ == 0);
-    ledBusy(955, "SUB BUSY/TX", aberto && ativo_ == 1);
+    // com dois aparelhos o outro VFO tem squelch proprio: o LED dele mostra o squelch dele (ocupadoRx)
+    ledBusy(800, "MAIN BUSY/TX", r_->ligado() && r_->aoVivo() && ocupadoRx(0) && (ativo_ == 0 || duas_));
+    ledBusy(955, "SUB BUSY/TX", r_->ligado() && r_->aoVivo() && ocupadoRx(1) && (ativo_ == 1 || duas_));
     // botao direito no chassi = MENU
     if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         ImGui::OpenPopup("##menu990");
@@ -2595,6 +2602,7 @@ void Ui::popupsPainel()
 #define DUAS_SEM_SUB
 #define DUAS_FAIXARX
 #define DUAS_SEM_CONT
+#define DUAS_SEM_SMOUTRO
 #include "DoisAparelhos.inc"
 
 } // namespace masdr

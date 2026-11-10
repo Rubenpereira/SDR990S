@@ -425,6 +425,12 @@ private:
         bool memModo = false; int memCanal = 0; bool lock = false; bool fine = false;
     };
     Receptor rx_[2];
+    // squelch: o piso de um canal vazio do tamanho do filtro (o ouvido e o outro aparelho)
+    float pisoSqlA_ = 1e9f, pisoSqlO_ = 1e9f;
+    bool sqlAbertoO_ = true;         // o squelch do outro aparelho esta aberto
+    bool ocupadoRx(int rx) const;    // BUSY daquele VFO
+    float pisoCanal(const QuadroFft& q, int w) const;
+    static float potDb(const std::vector<int8_t>& bins, int a, int b, int pular);   // potencia media (dB) dos bins a..b
     void faixaRx(int rx, double& f0, double& f1) const;   // dois aparelhos: a faixa do filtro
     bool tocaRx(int rx) const;       // dois aparelhos: este VFO esta tocando?
     void alternarOuvirOs2();         // dois aparelhos: os dois juntos / so o selecionado

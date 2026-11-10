@@ -1907,6 +1907,36 @@ void Ui::padrao()
     padraoMsgAte_ = agoraS() + 1.2;
 }
 
+// SQUELCH: a potencia MEDIA de um canal (a media em potencia dos bins de a..b, em dB). A media de ~100 bins
+// quase nao oscila no ruido (+-0,5 dB), entao o squelch pode ficar 2-3 dB acima do ruido e abrir com sinal
+// fraco (o pico de um bin oscilava +-5 dB e obrigava a fechar bem mais alto).
+float Ui::potDb(const std::vector<int8_t>& bins, int a, int b, int pular)
+{
+    static float lin[256];
+    static bool pronto = false;
+    if (!pronto) { for (int i = 0; i < 256; ++i) lin[i] = std::pow(10.f, (float)(i - 128) / 10.f); pronto = true; }
+    double s = 0; int n = 0;
+    for (int i = a; i <= b; ++i) {
+        if (i == pular || i == pular - 1 || i == pular + 1) continue;
+        s += lin[(int)bins[(size_t)i] + 128]; ++n;
+    }
+    return n > 0 ? 10.f * std::log10((float)(s / n) + 1e-12f) : -200.f;
+}
+
+// O piso de um canal vazio de w bins: o espectro (sem as beiradas) cortado em janelas de w bins, a potencia
+// media de cada uma e o percentil 30 (a maioria das janelas e vazia). -999 = sem espectro.
+float Ui::pisoCanal(const QuadroFft& q, int w) const
+{
+    const int nb = (int)q.bins.size();
+    w = std::max(1, w);
+    const int ini = (int)std::floor(nb * 0.06), fim = (int)std::ceil(nb * 0.94);
+    std::vector<float> mx;
+    for (int s = ini; s + w <= fim; s += w) mx.push_back(potDb(q.bins, s, s + w - 1, nb / 2));
+    if (mx.size() < 4) return -999.f;
+    std::nth_element(mx.begin(), mx.begin() + mx.size() * 3 / 10, mx.end());
+    return mx[mx.size() * 3 / 10];
+}
+
 void Ui::novoQuadroFft()
 {
     QuadroFft q;
@@ -1972,6 +2002,7 @@ void Ui::novoQuadroFft()
         if (!noDc && std::abs(i - cb) <= 1 && (b - a) > 2) continue;
         pk = std::max(pk, (float)fft_.bins[i]);
     }
+    const float pkSql = pk;              // o squelch usa o pico bruto (sem o teto de 0 dB)
     pk = (pk == -200) ? -120.f : std::min(0.f, pk + 15.f);
     // calibracao (calibrateDb / calibrateDbSemPiso da pagina)
     const auto& c = Config::instance();
@@ -1979,7 +2010,15 @@ void Ui::novoQuadroFft()
     const float s9Ref = (float)(hf ? c.num("s9_hf", -94) : c.num("s9_vhf", -93));
     const float desloc = s9Ref - (hf ? -94.f : -93.f);
     float dbCal = pk - desloc;
-    peakDbSql_ = std::clamp(dbCal, -120.f, 0.f);
+    {   // SQUELCH (10/11/2026): quanto a potencia media no filtro passa a de um canal VAZIO do mesmo tamanho,
+        // menos 60 - o ruido fica em -60 e o sinal sobe dali (escala do SQL: -90 aberto ... +30). Antes era o pico
+        // + 15 com teto em 0 dB: com o PRMP / AMP e o T-AGC o ruido ja batia no teto, entao o squelch que
+        // fechava o ruido nao abria mais com sinal nenhum (VHF FM / DMR).
+        const float pc = pisoCanal(fft_, b - a + 1);
+        if (pc > -900.f) pisoSqlA_ = pisoSqlA_ > 1e8f ? pc : pisoSqlA_ + (pc - pisoSqlA_) * 0.08f;
+        const float pot = potDb(fft_.bins, a, b, noDc ? -9 : cb);    // a potencia media no filtro
+        peakDbSql_ = (pkSql <= -199.f || pisoSqlA_ > 1e8f) ? -120.f : std::clamp(pot - pisoSqlA_ - 60.f, -120.f, 60.f);
+    }
     // piso: tabela rms->dB com hfEmpty = 36
     const float er = 36.f;
     const float tab[10][2] = {{5, -110}, {8, -45}, {14.5f, -20}, {28.5f, -14}, {45, -9}, {60.5f, -6}, {67.5f, -3.5f}, {78.5f, -1.5f}, {89.5f, -0.5f}, {96, 0}};

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SDR990S VERSION 1.3.0 LANGUAGES C CXX)
+project(SDR990S VERSION 1.3.1 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 #  SDR-990S - receptor SDR com painel de radio (Windows 7 SP1 ate 11)
