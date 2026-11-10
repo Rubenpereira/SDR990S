@@ -44,7 +44,7 @@ struct Fontes {
 
 class Ui {
 public:
-    Ui(Radio& radio, IDirect3DDevice9* dev, const Fontes& f, float escala);
+    Ui(Radio& radio, Radio& radioB, IDirect3DDevice9* dev, const Fontes& f, float escala);
     ~Ui();
 
     void quadro();            // monta a tela inteira (uma vez por quadro)
@@ -149,7 +149,26 @@ private:
                 float mn, float mx, float x, float y, float w, float passoRoda, unsigned corRotulo = 0,
                 unsigned corValor = 0, unsigned corTrilho = 0);
 
-    Radio& r_;
+    Radio* r_;                      // o receptor OUVIDO (VFO-A, ou o do VFO-B quando ele tem aparelho proprio)
+    Radio* ra_ = nullptr;           // o aparelho do VFO-A
+    Radio* rb_ = nullptr;           // o aparelho do VFO-B (so com "VFO-B com aparelho proprio")
+    // ---- MB1SDR: dois aparelhos (um por VFO) ----
+    bool duas_ = false;             // VFO-B com aparelho proprio (b_ativo no INI)
+    bool ouvirOs2_ = true;          // o audio dos dois VFOs ao mesmo tempo (b_dois_audios); falso = so o ouvido
+    bool monSolo_ = false;          // MON segurado: so o outro VFO toca
+    Radio* outro() const { return r_ == ra_ ? rb_ : ra_; }
+    void atualizarDuas();           // a cada quadro: o aparelho do outro VFO segue o painel
+    void ligarDuas(bool on);        // liga / desliga o modo de dois aparelhos
+    void configVfoB();              // a parte "VFO-B" da janela de CONFIGURACAO
+    QuadroFft fftO_;                // o espectro do outro aparelho
+    std::vector<float> suaveO_;
+    float pisoO_ = 1e9f, rfOutroAplicado_ = -1.f;
+    double tentarOutroAte_ = 0;
+    std::string erroOutro_, assinOutro_;
+    AjusteAudio ajOutro_; bool ajOutroPrimeiro_ = true;
+    int cfgBTipo_ = 1; char cfgBHost_[64] = "127.0.0.1"; int cfgBPorta_ = 1234; int cfgBDisp_ = -1; bool cfgBLido_ = false;
+    int pedidoDuas_ = -1; bool pedidoConectarB_ = false;
+    bool autoOutroFeito_ = false; int quadrosOutro_ = 0;   // o AUTO da cachoeira do outro aparelho (uma vez, ou no TUNE)   // a janela de configuracao pede; atualizarDuas() faz (fora dela)
     IDirect3DDevice9* dev_;
     Fontes f_;
     float s_;                       // escala (DPI)
@@ -406,6 +425,10 @@ private:
         bool memModo = false; int memCanal = 0; bool lock = false; bool fine = false;
     };
     Receptor rx_[2];
+    void faixaRx(int rx, double& f0, double& f1) const;   // dois aparelhos: a faixa do filtro
+    bool tocaRx(int rx) const;       // dois aparelhos: este VFO esta tocando?
+    void alternarOuvirOs2();         // dois aparelhos: os dois juntos / so o selecionado
+    uint64_t autoOutroF_ = 0;        // dois aparelhos: onde estava o outro VFO no ultimo AUTO dele
     int ativo_ = 0, txVfo_ = 0;
     float filHi_[5][3]{}, filLo_[5][3]{};
     int grupoAplicado_ = -1, bwAplicado_ = -1;

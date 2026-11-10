@@ -393,7 +393,7 @@ const std::vector<SatInfo>& Ui::catSat() const
 // Liga o decodificador que o satelite sintonizado pede
 void Ui::iniciarSubSat()
 {
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     const int sub = satSub_ == Decoders::SSTV || satSub_ == Decoders::APRS ? satSub_ : (int)Decoders::SATELITES;
     if (sub == Decoders::APRS) decAj_.aprsBaud = 1200;
     if (d.tipo() != (Decoders::Tipo)sub || !decRodando_) d.iniciar((Decoders::Tipo)sub, decAj_);
@@ -407,18 +407,18 @@ void Ui::sintonizarSat(int idx)
     iniciarRastreador();
     const SatInfo& s = cat[idx];
     mudarModo(s.modo);
-    r_.setBanda(s.banda);
+    r_->setBanda(s.banda);
     satSint_ = idx;
     satBaseHz_ = (double)s.desce;
     uint64_t f = s.desce;
     const PosSat p = sat_->posicao(s.norad, Rastreador::agoraUtc());
     if (satDoppler_ && p.ok) f = (uint64_t)std::llround(s.desce * (1.0 - p.velRad / kLuz));
     sintonizar(f, false);
-    satUltVfo_ = r_.vfo();
+    satUltVfo_ = r_->vfo();
     decMudouFreq_ = true;
     const int antes = satSub_;
     satSub_ = s.tipo == TipoSat::SSTV ? (int)Decoders::SSTV : s.tipo == TipoSat::DADOS ? (int)Decoders::APRS : (int)Decoders::SATELITES;
-    if (satSub_ != antes || !decRodando_ || r_.decoders().tipo() != (Decoders::Tipo)satSub_) iniciarSubSat();
+    if (satSub_ != antes || !decRodando_ || r_->decoders().tipo() != (Decoders::Tipo)satSub_) iniciarSubSat();
     char b[256];
     std::snprintf(b, sizeof b, T("[SAT] %s  %.3f MHz %s  -  %s\n"), s.nome, s.desce / 1e6, s.modo,
                   s.tipo == TipoSat::SSTV ? T("decodificador SSTV ligado")
@@ -444,14 +444,14 @@ void Ui::seguirDoppler(double agora)
     const PosSat p = sat_->posicao(s.norad, agora);
     if (!p.ok) return;
     const double fator = 1.0 - p.velRad / kLuz;
-    const uint64_t vfo = r_.vfo();
+    const uint64_t vfo = r_->vfo();
     if (satUltVfo_ && std::llabs((long long)vfo - (long long)satUltVfo_) > 5) satBaseHz_ = vfo / fator;
     if (p.el < -3) { satUltVfo_ = vfo; return; }
     const uint64_t alvo = (uint64_t)std::llround(satBaseHz_ * fator);
     // APT/LRIT: passos de 50 Hz (o sinal e largo, nao precisa de tanto)
     const long long lim = s.tipo == TipoSat::FONIA_SSB ? 25 : (categoriaMeteo(s.tipo) ? 50 : 250);
     if (std::llabs((long long)alvo - (long long)vfo) >= lim) sintonizar(alvo, false);
-    satUltVfo_ = r_.vfo();
+    satUltVfo_ = r_->vfo();
 }
 
 // resumo mostrado na barra minimizada; tambem mantem o Doppler vivo
@@ -782,7 +782,7 @@ void Ui::painelSatelites()
             ImGui::SameLine();
             if (ImGui::Checkbox(T("Corrigir Doppler"), &satDoppler_)) {
                 cfg.set("sat_doppler", satDoppler_);
-                satUltVfo_ = r_.vfo();
+                satUltVfo_ = r_->vfo();
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(T("Desligado: o rádio fica na frequência central (sem Doppler).\n"
@@ -918,7 +918,7 @@ void Ui::painelSatelites()
         }
         ImGui::TextDisabled("%s", T("Horários locais. Verde = passagem alta (30\xC2\xB0 ou mais)."));
         // SSTV: a imagem chegando; o resto: o texto do decodificador
-        auto& dec = r_.decoders();
+        auto& dec = r_->decoders();
         if (dec.tipo() == Decoders::SSTV) {
             auto& sv = dec.sstv();
             const SstvCore::Status stt = sv.status();

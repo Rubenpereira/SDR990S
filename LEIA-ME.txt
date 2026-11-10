@@ -52,6 +52,24 @@ Como mexer
  - Teclado do PC: digite a frequencia em kHz e Enter. Setas: passo / 1 MHz.
  - Botao direito no painel = MENU.  F12 = captura da tela (pasta Capturas).
 
+Dois aparelhos (um dongle em cada VFO)
+ O VFO-B pode ter o seu proprio aparelho e receber ao mesmo tempo que o VFO-A
+ (por exemplo um RTL-TCP em HF e outro em VHF).
+ - CONFIGURACAO > VFO-B (segundo aparelho): marque "VFO-B com aparelho proprio",
+   escolha o tipo (RTL-SDR, RTL-TCP ou SDRplay), o IP e a porta (ou o dongle
+   USB) e clique em Conectar o VFO-B. Ao lado aparece o estado (recebendo,
+   erro...).
+ - "Ouvir os dois VFOs ao mesmo tempo" (padrao): os dois tocam juntos, cada um
+   com o seu volume. Desmarcado: so o VFO selecionado toca.
+ - Volume, RF e squelch de cada VFO: o AF/RF da coluna MAIN RECEIVER controla o
+   VFO-A e o da coluna SUB RECEIVER controla o VFO-B (o SQL de cada coluna e o
+   MUTE de cada uma tambem).
+ - O escopo mostra o aparelho do VFO que se ouve (MAIN RX / SUB RX escolhem).
+ - O aparelho do VFO-B liga e desliga junto com o POWER. Se a caixa dele cair, o
+   programa avisa e tenta de novo a cada 10 s.
+ - Os decodificadores rodam no VFO que se ouve (trocar de VFO fecha o que
+   estiver aberto).
+
 Funcoes dos botoes (o que mudou em relacao ao radio de verdade)
  Coluna da esquerda
    (liga)     liga/desliga o radio      TIMER   desliga sozinho depois de X min

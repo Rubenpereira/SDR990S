@@ -20,6 +20,7 @@ Baixe o `.zip` em **[Releases](https://github.com/Rubenpereira/SDR990S/releases)
 
 - **Aparelhos:** RTL-SDR (USB), RTL-TCP (rede) e SDRplay (com a [API oficial](https://www.sdrplay.com/api/)).
 - **ADS-B pela rede:** o Radar Aéreo também mostra os aviões de outro receptor da sua rede (FlightAware/PiAware, dump1090, readsb, FR24...) pela porta Beast 30005. O SDR990S só lê, e o dongle fica livre.
+- **Dois aparelhos:** o VFO-B pode ter o seu próprio dongle (ex.: um RTL-TCP em HF e outro em VHF), recebendo ao mesmo tempo que o VFO-A. Os dois tocam juntos, cada um com o seu volume, RF e squelch (CONFIGURAÇÃO > VFO-B).
 - **Modos:** LSB, USB, CW, AM, FM estreito e FM largo.
 - **Cada botão faz a função do rádio.** Os de transmissão, que num receptor não servem, ganharam funções de recepção. Pare o mouse em cima de qualquer botão: a dica diz o que ele faz.
 - **Filtros:** HI/LO-CUT, SHIFT/WIDTH do CW e filtros A/B/C por modo.

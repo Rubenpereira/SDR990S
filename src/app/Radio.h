@@ -46,7 +46,9 @@ struct QuadroFft {
 
 class Radio {
 public:
-    Radio();
+    // prefixo: "" = o aparelho do VFO-A (chaves normais do INI); "b_" = o do VFO-B quando ele tem aparelho
+    // proprio (chaves b_device, b_rtltcp_host, b_vfo...; o que nao tiver b_ usa a do VFO-A)
+    explicit Radio(const std::string& prefixo = "");
     ~Radio();
 
     bool iniciar();                       // abre o som; nao liga o dongle
@@ -96,12 +98,23 @@ public:
     int  ganhoTunerAgora() const;         // dB x 10 que vai ao tuner (-1 = AGC)
 
     SomNativo& som() { return som_; }
+    // SDR990S (dois aparelhos): so o receptor OUVIDO mede o nivel do canal para o S-meter
+    void setMedirCanal(bool on) { medirCanal_.store(on); }
+    const std::string& prefixo() const { return pre_; }
     Decoders& decoders() { return dec_; }
     // Troca a placa de som (nome como aparece no Windows; vazio = padrao)
     bool trocarSaida(const std::string& nome);
     static int indiceSaida(const std::string& nome);
 
 private:
+    // chaves do INI deste aparelho: chave("vfo") = "b_vfo" no VFO-B
+    std::string chave(const char* k) const { return pre_ + k; }
+    std::string cstr(const char* k, const std::string& def) const;     // b_ se houver, senao a do VFO-A
+    long long   cnum(const char* k, long long def) const;
+    bool        cflag(const char* k, bool def) const;
+    std::string cdev(const char* k, const std::string& def) const;     // so a deste aparelho (aparelho / IP / porta)
+    std::string pre_;
+    std::atomic<bool> medirCanal_{true};
     void ligarCallback();
     void novoDemod();
     void aoAudio(const std::vector<int16_t>& pcm, uint32_t sps);

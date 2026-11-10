@@ -221,10 +221,12 @@ std::string modoDaMemoria(std::string m)
 } // namespace
 
 // ===========================================================================
-Ui::Ui(Radio& radio, IDirect3DDevice9* dev, const Fontes& f, float escala)
-    : r_(radio), dev_(dev), f_(f), s_(escala)
+Ui::Ui(Radio& radio, Radio& radioB, IDirect3DDevice9* dev, const Fontes& f, float escala)
+    : r_(&radio), ra_(&radio), rb_(&radioB), dev_(dev), f_(f), s_(escala)
 {
     auto& c = Config::instance();
+    duas_ = c.flag("b_ativo", false);           // MB1SDR: VFO-B com aparelho proprio
+    ouvirOs2_ = c.flag("b_dois_audios", true);
     vol_ = (float)c.dbl("vol", 50);
     sql_ = (float)c.dbl("sql", -90);
     nb_ = (float)c.dbl("nb", 0);
@@ -341,7 +343,7 @@ void Ui::lerPedidoTeste()
     f.close();
     DeleteFileA(cam.c_str());
     for (const auto& l : linhas) {
-        if (l == "ligar" && !r_.ligado()) ligarDesligar();
+        if (l == "ligar" && !r_->ligado()) ligarDesligar();
         else if (l.rfind("freq ", 0) == 0) sintonizar((uint64_t)std::stoull(l.substr(5)), false);
         else if (l.rfind("modo ", 0) == 0) mudarModo(l.substr(5));
         else if (l == "ms") trocarMainSub();
@@ -349,6 +351,30 @@ void Ui::lerPedidoTeste()
         else if (l.rfind("velesc ", 0) == 0) wfSpeedEsc_ = std::clamp((float)std::atof(l.c_str() + 7), 1.f, 10.f);
         else if (l.rfind("satsel ", 0) == 0) satSel_ = std::atoi(l.c_str() + 7);         // satelite (indice do catalogo)
         else if (l.rfind("satsint ", 0) == 0) sintonizarSat(std::atoi(l.c_str() + 8));
+        else if (l.rfind("rf ", 0) == 0) { rx_[ativo_].rf = std::clamp((float)std::atof(l.c_str() + 3), 0.f, 100.f); aplicarReceptor(); }
+        else if (l.rfind("pamp ", 0) == 0) { pamp_ = std::clamp(std::atoi(l.c_str() + 5), 0, 2); aplicarReceptor(); }
+        else if (l.rfind("nivel", 0) == 0) {     // teste: grava os niveis medidos (pronto\nivel.txt)
+            auto med = [](const std::vector<int8_t>& b, double q) {
+                if (b.empty()) return -999.0;
+                std::vector<int> v(b.begin(), b.end());
+                std::nth_element(v.begin(), v.begin() + (size_t)(v.size() * q), v.end());
+                return (double)v[(size_t)(v.size() * q)];
+            };
+            auto mx = [](const std::vector<int8_t>& b) { int m = -128; for (auto x : b) m = std::max(m, (int)x); return m; };
+            std::ofstream o(pastaDoExe() + "\\nivel.txt", std::ios::app);
+            char t[600];
+            std::snprintf(t, sizeof t, "%s ativo=%d duas=%d f=%llu %s gain=%.0f tuner=%d q=%d pamp=%d att=%d rf=%.1f | p25=%.0f p50=%.0f max=%d pisoMed=%.1f | som=%.3f smAtual=%.3f vol=%.1f brilho=%.0f",
+                l.c_str(), ativo_, (int)duas_, (unsigned long long)r_->vfo(), r_->modo().c_str(),
+                (double)Config::instance().num(ativo_ == 1 && duas_ ? "b_gain" : "gain", 496), r_->ganhoTunerAgora(), (int)r_->qAtivo(),
+                pamp_, att_, rx_[ativo_].rf, med(fft_.bins, 0.25), med(fft_.bins, 0.5), mx(fft_.bins), -999.f,
+                r_->som().nivel(), smAtual_, vol_, wfBrilho_);
+            o << t;
+            if (duas_) {
+                std::snprintf(t, sizeof t, " || OUTRO p25=%.0f p50=%.0f max=%d som=%.3f", med(fftO_.bins, 0.25), med(fftO_.bins, 0.5), mx(fftO_.bins), outro()->som().nivel());
+                o << t;
+            }
+            o << "\n";
+        }
         else if (l == "main") ativar(0);
         else if (l == "sub") ativar(1);
         else if (l.rfind("adsbrede ", 0) == 0) {          // "adsbrede 192.168.0.10:30005"
@@ -408,8 +434,8 @@ void Ui::quadro()
 {
     ImGuiIO& io = ImGui::GetIO();
     lerPedidoTeste();
-    r_.decoders().manterAdsbRede(adsbRede_ && !adsbRedeAlvo_.empty(), adsbRedeAlvo_, adsbRedeAlvoPorta_, decAj_.adsbInternet);
-    if (!r_.aoVivo()) { centroMostrado_ = r_.centro(); taxaMostrada_ = r_.taxa(); }
+    r_->decoders().manterAdsbRede(adsbRede_ && !adsbRedeAlvo_.empty(), adsbRedeAlvo_, adsbRedeAlvoPorta_, decAj_.adsbInternet);
+    if (!r_->aoVivo()) { centroMostrado_ = r_->centro(); taxaMostrada_ = r_->taxa(); }
     const double t = agoraS();
     // O que se desenha fica centrado em centroVisual_. Normalmente e o centro
     // dos dados; durante o arrasto segue o mouse (interacaoEspectro); depois de
@@ -423,13 +449,14 @@ void Ui::quadro()
     const float dt = (float)std::min(0.25, t - ultimoQuadroT_);
     ultimoQuadroT_ = t;
 
+    atualizarDuas();          // MB1SDR: o aparelho do outro VFO (quando o VFO-B tem o seu)
     novoQuadroFft();
     // Cachoeira: linhas por segundo da pagina (Speed 1..10 = 5..450 l/s),
     // contadas pelo relogio da tela e nao pela chegada da FFT (25/s) - antes
     // o Speed parava de fazer diferenca acima de 6.
     // (O AUTO nao acompanha mais o piso sozinho: so ajusta quando clicado,
     //  com a aparencia guardada no PADRAO - igual era antes.)
-    if (r_.aoVivo() && !fft_.bins.empty()) {
+    if (r_->aoVivo() && !fft_.bins.empty()) {
         // no ritmo da cachoeira mais rapida (a de baixo ou a do Band Scope)
         wfAcum_ += dt * kLinhasSegWf[std::clamp((int)std::lround(std::max(wfSpeed_, wfSpeedEsc_)), 1, 10)];
         if (wfAcum_ >= 1.0) {
@@ -495,11 +522,11 @@ void Ui::quadro()
 
     // teclado: setas sintonizam um passo
     if (!radarAberto_ && !io.WantTextInput && !ImGui::IsAnyItemActive()) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) sintonizar(r_.vfo() + passo_, false);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && r_.vfo() > (uint64_t)passo_) sintonizar(r_.vfo() - passo_, false);
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) sintonizar(r_->vfo() + passo_, false);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && r_->vfo() > (uint64_t)passo_) sintonizar(r_->vfo() - passo_, false);
         // para cima / para baixo: exatamente 1 MHz
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) sintonizar(r_.vfo() + 1000000, false);
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && r_.vfo() > 1000000 + 1000) sintonizar(r_.vfo() - 1000000, false);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) sintonizar(r_->vfo() + 1000000, false);
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && r_->vfo() > 1000000 + 1000) sintonizar(r_->vfo() - 1000000, false);
     }
 
     ImGui::End();
@@ -591,10 +618,10 @@ void Ui::barraTopo()
     }
     if (item("DECODERS", IM_COL32(0xb0, 0xf0, 0x20, 255))) decAberta_ = true;
     {
-        const bool g = r_.som().gravando();
+        const bool g = r_->som().gravando();
         char rot[48];
         if (g) {
-            const int sgs = (int)r_.som().segundosGravados();
+            const int sgs = (int)r_->som().segundosGravados();
             std::snprintf(rot, sizeof rot, T("● GRAVANDO %02d:%02d"), sgs / 60, sgs % 60);
         } else std::snprintf(rot, sizeof rot, T("GRAVAR"));
         if (item(rot, g ? IM_COL32(0xff, 0x52, 0x52, 255) : IM_COL32(0xff, 0x80, 0x80, 255))) alternarGravacao();
@@ -626,13 +653,13 @@ void Ui::abrirConfig()
         cfgAssin_.clear(); cfgMsg_.clear();
         // prepara os campos com o que esta valendo
         auto& c = Config::instance();
-        lista_ = Radio::listar(r_.temDispositivo() ? r_.tipo() : std::string(), r_.serial(), c.device() == "sdrplay");
+        lista_ = Radio::listar(r_->temDispositivo() ? r_->tipo() : std::string(), r_->serial(), c.device() == "sdrplay");
         // O dongle que o proprio RXSDR esta usando nao aparece na busca do
         // Windows (esta ocupado). Entra na lista como "em uso".
-        if (r_.temDispositivo() && r_.tipo() != "rtltcp") {
+        if (r_->temDispositivo() && r_->tipo() != "rtltcp") {
             bool achou = false;
-            for (const auto& d : lista_) if (d.tipo == r_.tipo() && d.serial == r_.serial()) achou = true;
-            if (!achou) lista_.insert(lista_.begin(), DispositivoInfo{r_.tipo(), r_.serial(), r_.tipo() == "rtlsdr" ? T("RTL-SDR (em uso)") : T("SDRplay (em uso)")});
+            for (const auto& d : lista_) if (d.tipo == r_->tipo() && d.serial == r_->serial()) achou = true;
+            if (!achou) lista_.insert(lista_.begin(), DispositivoInfo{r_->tipo(), r_->serial(), r_->tipo() == "rtlsdr" ? T("RTL-SDR (em uso)") : T("SDRplay (em uso)")});
         }
         const std::string tp = c.device();
         cfgTipo_ = tp == "rtltcp" ? 1 : tp == "sdrplay" ? 2 : 0;
@@ -729,13 +756,13 @@ void Ui::painelEsquerdo(float x, float y, float w, float h)
 {
     const float g = 4 * s_;
     const float hOn = 30 * s_;
-    const bool lig = r_.ligado();
+    const bool lig = r_->ligado();
     if (botao(lig ? "ON" : "OFF", x, y, w, hOn, lig, lig ? C_RX : IM_COL32(0xff, 0x40, 0x40, 255)))
         ligarDesligar();
     const float bw = (w - g) * 0.5f;
     const float hb = (h - hOn - 3 * g) / 3.f;
     float yy = y + hOn + g;
-    const std::string rotBw = fmtBw(r_.banda()) + "\nBW";
+    const std::string rotBw = fmtBw(r_->banda()) + "\nBW";
     const std::string rotPasso = fmtBw(passo_) + "\nSTEP";
     if (botao(rotBw.c_str(), x, yy, bw, hb, false)) ImGui::OpenPopup("bw");
     if (botao(rotPasso.c_str(), x + bw + g, yy, bw, hb, false)) ImGui::OpenPopup("passo");
@@ -744,7 +771,7 @@ void Ui::painelEsquerdo(float x, float y, float w, float h)
         // ...mas nao cravado nele (o "apito" do DC): com zoom, o centrarParaZoom
         // ja faz isso dentro do que se ve; sem zoom, 20 kHz ao lado
         if (zoom_ > 0) centrarParaZoom(true);
-        else r_.centralizar(r_.centroSemDc(r_.vfo()));
+        else r_->centralizar(r_->centroSemDc(r_->vfo()));
         muteAte_ = agoraS() + 0.25;
     }
     const bool dc = Config::instance().dcRemove();
@@ -756,8 +783,8 @@ void Ui::painelEsquerdo(float x, float y, float w, float h)
 
     if (ImGui::BeginPopup("bw")) {
         for (int b : kBandas) {
-            const bool sel = b == r_.banda();
-            if (ImGui::Selectable(fmtBw(b).c_str(), sel)) r_.setBanda(b);
+            const bool sel = b == r_->banda();
+            if (ImGui::Selectable(fmtBw(b).c_str(), sel)) r_->setBanda(b);
         }
         ImGui::EndPopup();
     }
@@ -777,7 +804,7 @@ void Ui::painelEsquerdo(float x, float y, float w, float h)
 void Ui::smeter(float x, float y, float w, float h)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const bool lig = r_.ligado();
+    const bool lig = r_->ligado();
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(0x03, 0x07, 0x04, 255), 4 * s_);
     const ImU32 tinta = lig ? IM_COL32_WHITE : IM_COL32(110, 104, 96, 255);
     if (texSmeter_) dl->AddImageRounded(TEXID(texSmeter_), ImVec2(x, y), ImVec2(x + w, y + h),
@@ -804,7 +831,7 @@ void Ui::mostradorFreq(float x, float y, float w, float h)
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(0x0a, 0x0e, 0x14, 255), 4 * s_);
     dl->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(0x20, 0xaa, 0xdd, 255), 4 * s_);
 
-    const uint64_t f = r_.vfo();
+    const uint64_t f = r_->vfo();
     char dig[16];
     std::snprintf(dig, sizeof dig, "%010llu", (unsigned long long)(f % 10000000000ULL));
     // 4 digitos de MHz . 6 digitos
@@ -863,12 +890,12 @@ void Ui::mostradorFreq(float x, float y, float w, float h)
 
     // barra de sinal fina embaixo (vfoSbarFill da pagina)
     const float bx = x + 12 * s_, by = y + h - 24 * s_, bw = w - 24 * s_;
-    const float pos = r_.ligado() ? smAtual_ : 0.f;
+    const float pos = r_->ligado() ? smAtual_ : 0.f;
     const float fr = std::clamp(0.2f + pos * 0.7f, 0.f, 1.f);
     const ImU32 cb = pos > 0.66f ? IM_COL32(0xe2, 0x3b, 0x3b, 255) : pos > 0.55f ? IM_COL32(0xe0, 0xa5, 0x2f, 255)
                                                                    : IM_COL32(0x2f, 0x7f, 0xd6, 255);
     dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + 11 * s_), IM_COL32(0x0c, 0x14, 0x1f, 255), 2 * s_);
-    if (r_.ligado()) dl->AddRectFilled(ImVec2(bx + 1, by + 1), ImVec2(bx + 1 + (bw - 2) * fr, by + 10 * s_), cb, 2 * s_);
+    if (r_->ligado()) dl->AddRectFilled(ImVec2(bx + 1, by + 1), ImVec2(bx + 1 + (bw - 2) * fr, by + 10 * s_), cb, 2 * s_);
     dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + 11 * s_), IM_COL32(0x24, 0x32, 0x46, 255), 2 * s_);
     // escala de S embaixo da barra
     ImGui::PushFont(f_.pequena);
@@ -884,8 +911,8 @@ void Ui::mostradorFreq(float x, float y, float w, float h)
         const float fy = y + 5 * s_;
         dl->AddRectFilled(ImVec2(x + 10 * s_, fy), ImVec2(x + 32 * s_, fy + 12 * s_), IM_COL32(0x1f, 0x7a, 0x2e, 255), 3 * s_);
         dl->AddText(ImVec2(x + 14 * s_, fy - 1 * s_), IM_COL32(0xea, 0xfb, 0xe9, 255), "RX");
-        dl->AddText(ImVec2(x + 38 * s_, fy - 1 * s_), IM_COL32(0x37, 0xc0, 0xd6, 255), r_.modo().c_str());
-        const std::string bwTxt = fmtBw(r_.banda());
+        dl->AddText(ImVec2(x + 38 * s_, fy - 1 * s_), IM_COL32(0x37, 0xc0, 0xd6, 255), r_->modo().c_str());
+        const std::string bwTxt = fmtBw(r_->banda());
         const ImVec2 tb = ImGui::CalcTextSize(bwTxt.c_str());
         dl->AddText(ImVec2(x + w - tb.x - 10 * s_, fy - 1 * s_), IM_COL32(0x9f, 0xb0, 0xc4, 255), bwTxt.c_str());
     }
@@ -916,7 +943,7 @@ void Ui::olhoMagico(float x, float y, float w, float h)
     const float d = std::min(w, h - setas - 6 * s_);
     const ImVec2 c(x + w * 0.5f, y + d * 0.5f);
     const float r = d * 0.5f * (250.f / 300.f);
-    const bool lig = r_.ligado();
+    const bool lig = r_->ligado();
     dl->AddCircleFilled(c, r, IM_COL32(0x07, 0x2a, 0x0e, 255), 48);
     if (lig) {
         dl->AddCircleFilled(c, r, IM_COL32(0x2f, 0xd2, 0x4a, 230), 48);
@@ -949,8 +976,8 @@ void Ui::olhoMagico(float x, float y, float w, float h)
         else dl->AddTriangleFilled(ImVec2(c.x + t, c.y), ImVec2(c.x - t * 0.8f, c.y - t), ImVec2(c.x - t * 0.8f, c.y + t), ct);
         return cl;
     };
-    if (seta("##setaEsq", bx, -1) && r_.vfo() > (uint64_t)passo_) sintonizar(r_.vfo() - passo_, false);
-    if (seta("##setaDir", bx + bw + gap, +1)) sintonizar(r_.vfo() + passo_, false);
+    if (seta("##setaEsq", bx, -1) && r_->vfo() > (uint64_t)passo_) sintonizar(r_->vfo() - passo_, false);
+    if (seta("##setaDir", bx + bw + gap, +1)) sintonizar(r_->vfo() + passo_, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,14 +1119,14 @@ void Ui::grupoSliders(float x, float y, float w, float h, int qual)
             // encosta o squelch 2 dB acima do maior pico. Ambar = aberto.
             const char* rotSql = sqlMedindo_ ? (((int)(agoraS() * 5) % 2) ? "···" : "SQL") : "SQL";
             const unsigned corSql = sqlMedindo_ ? IM_COL32(0x37, 0xc0, 0xd6, 255)
-                                  : (sqlAberto_ && r_.aoVivo()) ? IM_COL32(0xff, 0xa0, 0x38, 255) : 0;
+                                  : (sqlAberto_ && r_->aoVivo()) ? IM_COL32(0xff, 0xa0, 0x38, 255) : 0;
             slider("sql", rotSql, b, &sql_, -90, 30, px, yy, pw, 2, corSql);
             ImGui::PushFont(f_.pequenaNeg);
             const ImVec2 ts = ImGui::CalcTextSize("SQL");
             ImGui::PopFont();
             const ImVec2 a(px - 4 * s_, yy - 1 * s_), bb(px + ts.x + 4 * s_, yy + ts.y + 1 * s_);
             ImGui::SetCursorScreenPos(a);
-            if (ImGui::InvisibleButton("##sqlauto", ImVec2(bb.x - a.x, bb.y - a.y)) && !sqlMedindo_ && r_.aoVivo()) {
+            if (ImGui::InvisibleButton("##sqlauto", ImVec2(bb.x - a.x, bb.y - a.y)) && !sqlMedindo_ && r_->aoVivo()) {
                 sqlMedindo_ = true; sqlAmostras_.clear(); sqlIni_ = agoraS(); sqlUlt_ = 0;
             }
             const bool so = ImGui::IsItemHovered();
@@ -1114,16 +1141,16 @@ void Ui::grupoSliders(float x, float y, float w, float h, int qual)
         std::snprintf(b, sizeof b, "%d%%", (int)std::lround(nr_));
         slider("nr", T("Redutor de Ruído"), b, &nr_, 0, 100, px, yy, pw, 1);
         yy += lh;
-        const bool semGanho = r_.tipo() == "sdrplay" || Config::instance().agc();
+        const bool semGanho = r_->tipo() == "sdrplay" || Config::instance().agc();
         std::snprintf(b, sizeof b, semGanho ? "AGC" : "%.1f dB", 49.6f * (1.f - ganhoRf_ / 100.f));
         // AGC ligado na CONFIGURACAO: rotulo, "AGC" e o trilho piscam em laranja
         unsigned corAgc = 0;
-        if (Config::instance().agc() && r_.tipo() != "sdrplay") {
+        if (Config::instance().agc() && r_->tipo() != "sdrplay") {
             const float p = 0.5f + 0.5f * std::sin((float)agoraS() * 5.f);
             corAgc = IM_COL32(0xff, 0x9a, 0x1f, (int)(90 + 165 * p));
         }
         if (slider("rf", T("Ganho de RF"), b, &ganhoRf_, 0, 100, px, yy, pw, 5, corAgc, corAgc, corAgc))
-            r_.setGanho((int)std::lround(496.f * (1.f - ganhoRf_ / 100.f)));
+            r_->setGanho((int)std::lround(496.f * (1.f - ganhoRf_ / 100.f)));
     }
 }
 
@@ -1142,7 +1169,7 @@ void Ui::linhaModos(float y, float h)
     x += ImGui::CalcTextSize("Mode:").x + 6 * s_;
     ImGui::PopFont();
     const float bh = h - 8 * s_, by = y + 4 * s_, bw = 40 * s_;
-    const std::string m = r_.modo();
+    const std::string m = r_->modo();
     for (const char* md : kModos) {
         if (botao(md, x, by, bw, bh, m == md)) mudarModo(md);
         x += bw + 3 * s_;
@@ -1228,13 +1255,13 @@ void Ui::linhaModos(float y, float h)
         ImGui::PopFont();
         return cl;
     };
-    const bool dmrLig = r_.decoders().tipo() == Decoders::DMR;
+    const bool dmrLig = r_->decoders().tipo() == Decoders::DMR;
     if (botaoAzul("DMR", x, 56 * s_, dmrLig)) {
         decAberta_ = true;
         if (!dmrLig) escolherDecoder(Decoders::DMR, true);
     }
     x += 56 * s_ + 6 * s_;
-    const bool tetraLig = r_.decoders().tipo() == Decoders::TETRA;
+    const bool tetraLig = r_->decoders().tipo() == Decoders::TETRA;
     if (botaoAzul("TETRA", x, 64 * s_, tetraLig)) {
         decAberta_ = true;
         if (!tetraLig) escolherDecoder(Decoders::TETRA, true);
@@ -1292,9 +1319,9 @@ bool Ui::interacaoEspectro(float x, float y, float w, float h, const char* id)
     const double span = taxaMostrada_ / (1.0 + zoom_);
 
     // bordas do filtro
-    const uint64_t v = r_.vfo();
-    const int bw = r_.banda();
-    const std::string m = r_.modo();
+    const uint64_t v = r_->vfo();
+    const int bw = r_->banda();
+    const std::string m = r_->modo();
     double f0 = (double)v - bw / 2.0, f1 = (double)v + bw / 2.0;
     if (m == "USB") { f0 = (double)v; f1 = (double)v + bw; }
     if (m == "LSB") { f0 = (double)v - bw; f1 = (double)v; }
@@ -1321,7 +1348,7 @@ bool Ui::interacaoEspectro(float x, float y, float w, float h, const char* id)
             double nbw = (m == "USB") ? f - (double)v : (m == "LSB") ? (double)v - f : 2.0 * std::fabs(f - (double)v);
             const double q = nbw < 5000 ? 50 : nbw < 30000 ? 500 : 5000;
             nbw = std::clamp(std::round(nbw / q) * q, 50.0, 250000.0);
-            if ((int)nbw != r_.banda()) r_.setBanda((int)nbw);
+            if ((int)nbw != r_->banda()) r_->setBanda((int)nbw);
         } else {
             if (std::fabs(io.MousePos.x - arrastoX0_) > 4 * s_) arrastando_ = true;
             if (arrastando_) {
@@ -1331,9 +1358,9 @@ bool Ui::interacaoEspectro(float x, float y, float w, float h, const char* id)
                 const uint64_t p = (uint64_t)std::max(1, passo_);
                 const double nv = std::round(((double)arrastoVfo0_ + desl) / p) * p;
                 const double t = agoraS();
-                if (nv > 1000 && (uint64_t)nv != r_.vfo() && t - ultTuneArrasto_ > 0.04) {
+                if (nv > 1000 && (uint64_t)nv != r_->vfo() && t - ultTuneArrasto_ > 0.04) {
                     ultTuneArrasto_ = t;
-                    if (r_.sintonizar((uint64_t)nv)) muteAte_ = t + 0.25;
+                    if (r_->sintonizar((uint64_t)nv)) muteAte_ = t + 0.25;
                 }
             }
         }
@@ -1345,9 +1372,9 @@ bool Ui::interacaoEspectro(float x, float y, float w, float h, const char* id)
             const double novo = centroVisual_;
             const uint64_t p = (uint64_t)std::max(1, passo_);
             const double nv = std::round(((double)arrastoVfo0_ - (io.MousePos.x - arrastoX0_) / arrastoW_ * span) / p) * p;
-            if (nv > 1000) r_.sintonizar((uint64_t)nv);
+            if (nv > 1000) r_->sintonizar((uint64_t)nv);
             if (novo > 0) {
-                r_.centralizar((uint64_t)std::llround(novo));
+                r_->centralizar((uint64_t)std::llround(novo));
                 alvoCentro_ = novo; alvoAte_ = agoraS() + 1.5;   // segura a imagem ate chegar o quadro novo
                 muteAte_ = agoraS() + 0.25;
             }
@@ -1359,8 +1386,8 @@ bool Ui::interacaoEspectro(float x, float y, float w, float h, const char* id)
         arrastandoBw_ = false;
     }
     if (sobre && io.MouseWheel != 0) {
-        if (io.MouseWheel > 0) sintonizar(r_.vfo() + passo_, false);
-        else if (r_.vfo() > (uint64_t)passo_) sintonizar(r_.vfo() - passo_, false);
+        if (io.MouseWheel > 0) sintonizar(r_->vfo() + passo_, false);
+        else if (r_->vfo() > (uint64_t)passo_) sintonizar(r_->vfo() - passo_, false);
     }
     // botao direito: lista das bandas (uma por area - cachoeira e espectro)
     ImGui::PushID(id);
@@ -1406,7 +1433,7 @@ void Ui::menuBandas()
 {
     if (!ImGui::BeginPopup("##bandas")) return;
     ImGui::TextDisabled(T("Ir para a banda (modo e largura padrão, amostragem direta automática)"));
-    const uint64_t vfo = r_.vfo();
+    const uint64_t vfo = r_->vfo();
     for (size_t i = 0; i < sizeof kBandasRapidas / sizeof kBandasRapidas[0]; ++i) {
         const BandaRapida& b = kBandasRapidas[i];
         if (b.grupo) ImGui::SeparatorText(TL(b.grupo));
@@ -1428,8 +1455,8 @@ void Ui::irParaBanda(uint64_t hz, const char* modo)
 {
     Config::instance().set("qmode", std::string("auto"));   // amostragem direta automatica
     const std::string m = modo;
-    if (m != r_.modo()) r_.setModo(m);
-    for (int i = 0; i < 7; ++i) if (m == kModos[i]) r_.setBanda(kBwPadrao[i]);   // largura padrao mesmo sem trocar de modo
+    if (m != r_->modo()) r_->setModo(m);
+    for (int i = 0; i < 7; ++i) if (m == kModos[i]) r_->setBanda(kBwPadrao[i]);   // largura padrao mesmo sem trocar de modo
     muteAte_ = agoraS() + 0.25;
     sintonizar(hz, false);
 }
@@ -1448,7 +1475,7 @@ void Ui::espectro(float x, float y, float w, float h)
 
     dl->PushClipRect(ImVec2(x, y), ImVec2(x + w, y + h), true);
     const int nb = (int)suave_.size();
-    if (nb > 1 && r_.ligado()) {
+    if (nb > 1 && r_->ligado()) {
         const double span = taxaMostrada_ / (1.0 + zoom_);
         const double binsPorHz = nb / (double)taxaMostrada_;
         // bin (fracionario) da borda esquerda da tela e bins por coluna
@@ -1476,9 +1503,9 @@ void Ui::espectro(float x, float y, float w, float h)
         dl->AddPolyline(linha.data(), cols, IM_COL32(0xff, 0xc8, 0x00, 255), 0, 1.5f * s_);
     }
     // filtro e marca de sintonia
-    const uint64_t v = r_.vfo();
-    const int bw = r_.banda();
-    const std::string m = r_.modo();
+    const uint64_t v = r_->vfo();
+    const int bw = r_->banda();
+    const std::string m = r_->modo();
     double f0 = (double)v - bw / 2.0, f1 = (double)v + bw / 2.0;
     if (m == "USB") { f0 = (double)v; f1 = (double)v + bw; }
     if (m == "LSB") { f0 = (double)v - bw; f1 = (double)v; }
@@ -1632,7 +1659,7 @@ void Ui::cachoeira(float x, float y, float w, float h)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(0, 0, 32, 255));   // cor 0 da paleta
-    if (wfTex_ && r_.ligado()) {
+    if (wfTex_ && r_->ligado()) {
         // faixa da textura (0..1) que cai na tela; fora dela, fundo
         const double span = taxaMostrada_ / (1.0 + zoom_);
         double u0 = ((centroVisual_ - span / 2) - (double)centroMostrado_) / taxaMostrada_ + 0.5;
@@ -1656,9 +1683,9 @@ void Ui::cachoeira(float x, float y, float w, float h)
         }
     }
     // filtro e marca de sintonia por cima
-    const uint64_t v = r_.vfo();
-    const int bw = r_.banda();
-    const std::string m = r_.modo();
+    const uint64_t v = r_->vfo();
+    const int bw = r_->banda();
+    const std::string m = r_->modo();
     double f0 = (double)v - bw / 2.0, f1 = (double)v + bw / 2.0;
     if (m == "USB") { f0 = (double)v; f1 = (double)v + bw; }
     if (m == "LSB") { f0 = (double)v - bw; f1 = (double)v; }
@@ -1685,7 +1712,7 @@ void Ui::cachoeira(float x, float y, float w, float h)
         dl->AddText(ImVec2(mx + 11 * s_, my - ts.y - 3 * s_), IM_COL32(255, 255, 255, 255), t.c_str());
         ImGui::PopFont();
     }
-    if (!r_.ligado()) {
+    if (!r_->ligado()) {
         ImGui::PushFont(f_.negrito);
         const char* msg = "Configure o Rádio no botão ANT - acima à direita";
         const ImVec2 ts = ImGui::CalcTextSize(msg);
@@ -1703,15 +1730,15 @@ void Ui::rodape(float y, float h)
     const float W = ImGui::GetIO().DisplaySize.x;
     dl->AddRectFilled(ImVec2(0, y), ImVec2(W, y + h), C_MENU);
     dl->AddLine(ImVec2(0, y), ImVec2(W, y), C_BORDER);
-    const auto& som = r_.som();
+    const auto& som = r_->som();
     char b[512];
     const double span = taxaMostrada_ / (1.0 + zoom_);
     std::snprintf(b, sizeof b,
         T("%s  |  %s  |  Q: %s  |  Span: %.0f kHz  |  FFT %d  |  Sinal: %.1f dB (SQL %s)  |  %s %s  |  %.3f Msps  |  CPU %.0f%%"),
-        fmtFreq(r_.vfo()).c_str(), r_.modo().c_str(), r_.qAtivo() ? "ON (HF)" : "OFF",
+        fmtFreq(r_->vfo()).c_str(), r_->modo().c_str(), r_->qAtivo() ? "ON (HF)" : "OFF",
         span / 1000.0, (int)fft_.bins.size(), peakDb_, sqlAberto_ ? T("aberto") : T("fechado"),
-        r_.temDispositivo() ? r_.tipo().c_str() : T("sem aparelho"), r_.serial().c_str(),
-        r_.taxa() / 1e6, cpu_);
+        r_->temDispositivo() ? r_->tipo().c_str() : T("sem aparelho"), r_->serial().c_str(),
+        r_->taxa() / 1e6, cpu_);
     ImGui::PushFont(f_.pequena);
     const float ty = y + (h - ImGui::GetFontSize()) * 0.5f;
     dl->AddText(ImVec2(8 * s_, ty), C_RX, b);
@@ -1741,18 +1768,18 @@ void Ui::sintonizar(uint64_t hz, bool arredondar)
         hz = (hz + p / 2) / p * p;
     }
     if (hz < 1000) hz = 1000;
-    if (r_.sintonizar(hz)) {
+    if (r_->sintonizar(hz)) {
         // O dongle foi recentralizado - e o Radio poe o centro CRAVADO na
         // sintonia, justo onde mora o "apito" do DC. Tira de cima:
         //   com zoom : o centrarParaZoom poe o centro 1,5 kHz ao lado (fora do que se ouve)
         //   sem zoom : o centro vai 20 kHz para o lado (o DC fica longe do canal)
         muteAte_ = agoraS() + 0.25;
-        const auto td = r_.decoders().tipo();
+        const auto td = r_->decoders().tipo();
         const bool centroFixo = td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB;
         if (zoom_ > 0) centrarParaZoom(true);
-        else if (!centroFixo && r_.modo() != "WFM" && r_.taxa() >= 200000) {
-            const std::string m = r_.modo();
-            r_.centralizar(m == "LSB" ? hz + 20000 : hz - 20000);   // USB/CW: o DC do lado rejeitado
+        else if (!centroFixo && r_->modo() != "WFM" && r_->taxa() >= 200000) {
+            const std::string m = r_->modo();
+            r_->centralizar(m == "LSB" ? hz + 20000 : hz - 20000);   // USB/CW: o DC do lado rejeitado
         }
         return;
     }
@@ -1772,46 +1799,46 @@ void Ui::sintonizar(uint64_t hz, bool arredondar)
 // lugar); senao so quando a estacao chega perto da borda do que se ve.
 void Ui::centrarParaZoom(bool forcar)
 {
-    if (zoom_ <= 0 || !r_.temDispositivo()) return;
+    if (zoom_ <= 0 || !r_->temDispositivo()) return;
     {   // HFDL, ACARS e VDL2 precisam do centro que combinaram com o programa
-        const auto td = r_.decoders().tipo();
+        const auto td = r_->decoders().tipo();
         if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB) return;
     }
-    const double vis = r_.taxa() / (1.0 + zoom_);
-    const std::string m = r_.modo();
+    const double vis = r_->taxa() / (1.0 + zoom_);
+    const std::string m = r_->modo();
     int64_t d = 0;
     if (m == "USB" || m == "CW") d = -20000;
     else if (m == "LSB") d = 20000;
-    else if (m != "WFM") d = -(int64_t)(r_.banda() / 2 + 20000);
+    else if (m != "WFM") d = -(int64_t)(r_->banda() / 2 + 20000);
     const int64_t teto = (int64_t)(vis * 0.15);          // nunca mais que 15% da tela para o lado
     d = std::clamp(d, -teto, teto);
-    const int64_t vfo = (int64_t)r_.vfo();
+    const int64_t vfo = (int64_t)r_->vfo();
     const int64_t alvo = vfo + d;
-    const int64_t centro = (int64_t)r_.centro();
+    const int64_t centro = (int64_t)r_->centro();
     const bool precisa = forcar ? std::llabs(centro - alvo) > 50
                                 : std::llabs(vfo - centro) > vis * 0.42;
     if (!precisa || alvo <= 0) return;
-    r_.centralizar((uint64_t)alvo);
+    r_->centralizar((uint64_t)alvo);
     alvoCentro_ = (double)alvo; alvoAte_ = agoraS() + 1.5;   // segura a imagem ate chegar o quadro novo
     muteAte_ = agoraS() + 0.25;
 }
 
 void Ui::mudarModo(const std::string& m)
 {
-    if (m == r_.modo()) return;
-    r_.setModo(m);
-    for (int i = 0; i < 7; ++i) if (m == kModos[i]) r_.setBanda(kBwPadrao[i]);
+    if (m == r_->modo()) return;
+    r_->setModo(m);
+    for (int i = 0; i < 7; ++i) if (m == kModos[i]) r_->setBanda(kBwPadrao[i]);
     muteAte_ = agoraS() + 0.25;
 }
 
 void Ui::ligarDesligar()
 {
     std::string e;
-    if (!r_.ligar(!r_.ligado(), e)) {
+    if (!r_->ligar(!r_->ligado(), e)) {
         erro_ = T("Não foi possível ligar: ") + e + T("\n\nConfira o aparelho em CONFIGURAÇÃO. No RTL-SDR o driver WinUSB "
                 "tem de estar instalado (Zadig), como no SDR#.");
         erroAte_ = agoraS() + 8;
-    } else if (r_.ligado()) {
+    } else if (r_->ligado()) {
         muteAte_ = agoraS() + 0.4;
     }
 }
@@ -1821,7 +1848,7 @@ void Ui::ligarDesligar()
 bool Ui::medirPiso(float& piso) const
 {
     const int nb = (int)fft_.bins.size();
-    if (!nb || !r_.aoVivo()) return false;
+    if (!nb || !r_->aoVivo()) return false;
     const int vis = std::max(2, (int)std::lround(nb / (1.0 + zoom_)));
     const int vi = std::max(0, (nb - vis) / 2), vf = std::min(nb, vi + vis);
     const int ini = std::max(vi, (int)std::floor(nb * 0.10)), fim = std::min(vf, (int)std::ceil(nb * 0.90));
@@ -1845,6 +1872,7 @@ void Ui::autoCachoeira()
     }
     wfSpeed_ = std::max(wfSpeed_, 1.f);
     autoWf_ = true;
+    autoOutroFeito_ = false;      // MB1SDR: com dois aparelhos, o outro VFO tambem se ajusta
 }
 
 // Com AUTO aceso, acompanha o piso: se ele andar mais de 4 dB (troca de
@@ -1882,7 +1910,7 @@ void Ui::padrao()
 void Ui::novoQuadroFft()
 {
     QuadroFft q;
-    if (!r_.pegarFft(q)) return;
+    if (!r_->pegarFft(q)) return;
     // O dongle mudou de centro (arrasto, ">.<", sintonia fora da janela): a
     // cachoeira antiga anda junto, para cada sinal continuar na sua coluna -
     // igual a pagina. Mudou a taxa: nao da para aproveitar, comeca limpa.
@@ -1926,9 +1954,9 @@ void Ui::novoQuadroFft()
         picoHold_[i] = std::max(picoHold_[i] - (float)(d * 0.004), v);   // pico que desce devagar
     }
     // S-meter: pico dentro do filtro (updateFromFft da pagina)
-    const uint64_t v = r_.vfo();
-    const int bw = r_.banda();
-    const std::string m = r_.modo();
+    const uint64_t v = r_->vfo();
+    const int bw = r_->banda();
+    const std::string m = r_->modo();
     double f0 = (double)v, f1 = (double)v;
     if (m == "USB") f1 = (double)v + bw;
     else if (m == "LSB") f0 = (double)v - bw;
@@ -1947,7 +1975,7 @@ void Ui::novoQuadroFft()
     pk = (pk == -200) ? -120.f : std::min(0.f, pk + 15.f);
     // calibracao (calibrateDb / calibrateDbSemPiso da pagina)
     const auto& c = Config::instance();
-    const bool hf = r_.qAtivo() || v < 30000000ULL;
+    const bool hf = r_->qAtivo() || v < 30000000ULL;
     const float s9Ref = (float)(hf ? c.num("s9_hf", -94) : c.num("s9_vhf", -93));
     const float desloc = s9Ref - (hf ? -94.f : -93.f);
     float dbCal = pk - desloc;
@@ -1973,7 +2001,7 @@ void Ui::novoQuadroFft()
         if (ab) sqlUltAberto_ = agoraS();
         sqlAberto_ = ab || (agoraS() - sqlUltAberto_ < sqlHang_);
     }
-    const float alvoPont = !r_.ligado() ? 0.01f : !sqlAberto_ ? 0.01f : dbParaPonteiro(peakDb_);
+    const float alvoPont = !r_->ligado() ? 0.01f : !sqlAberto_ ? 0.01f : dbParaPonteiro(peakDb_);
     const double agora = agoraS();
     smHist_.emplace_back(agora, alvoPont);
     size_t velhos = 0;
@@ -1987,12 +2015,12 @@ void Ui::atualizarSmeter(float dt)
     // o audio daquele instante sai na placa (o som passa pela fila da placa,
     // que com rtl_tcp por Wi-Fi chega a ~1 s). Sem isso o ponteiro ia na frente.
     {
-        const double atraso = std::min(3.0, r_.som().filaMs() / 1000.0 + 0.03);
+        const double atraso = std::min(3.0, r_->som().filaMs() / 1000.0 + 0.03);
         const double quando = agoraS() - atraso;
         for (auto it = smHist_.rbegin(); it != smHist_.rend(); ++it)
             if (it->first <= quando) { smAlvo_ = it->second; break; }
     }
-    if (!r_.aoVivo()) smAlvo_ = r_.ligado() ? 0.05f : 0.01f;
+    if (!r_->aoVivo()) smAlvo_ = r_->ligado() ? 0.05f : 0.01f;
     // subida como a pagina (0,28 por quadro a 60 q/s); a volta leva smRetorno_
     // segundos (ajustavel na CONFIGURACAO - 0,9 s era o valor fixo de antes)
     const float k = dt * 60.f;
@@ -2000,7 +2028,7 @@ void Ui::atualizarSmeter(float dt)
                                        : 1.f - std::exp(-dt / std::max(0.05f, smRetorno_));
     smAtual_ += (smAlvo_ - smAtual_) * a;
     // olho magico
-    const float alvoOlho = (r_.ligado() && !mudo_) ? r_.som().nivel() : 0.f;
+    const float alvoOlho = (r_->ligado() && !mudo_) ? r_->som().nivel() : 0.f;
     olho_ += (alvoOlho - olho_) * (alvoOlho > olho_ ? 1.f - std::pow(0.65f, k) : 1.f - std::pow(0.88f, k));
 }
 
@@ -2009,8 +2037,8 @@ void Ui::atualizarSom()
 {
     AjusteAudio a;
     // Com o DMR tocando, a voz vem do dsd-fme: o squelch do FM nao pode cala-la.
-    const bool dmr = r_.decoders().substituiAudio();
-    a.mudo = mudo_ || (!sqlAberto_ && !dmr) || agoraS() < muteAte_ || !r_.ligado();
+    const bool dmr = r_->decoders().substituiAudio();
+    a.mudo = mudo_ || (!sqlAberto_ && !dmr) || agoraS() < muteAte_ || !r_->ligado();
     a.volume = vol_ <= 0 ? 0.f : (float)(std::pow(vol_ / 100.0, 1.5) * 8.0);
     a.nb = nb_ / 100.f;
     a.nrEsp = nrEsp_;
@@ -2026,9 +2054,10 @@ void Ui::atualizarSom()
         a.apf = R.apf; a.apfHz = cwPitch_;
         a.proc = proc_; a.procNivel = procNivel_;
         if (sendMudo_) a.mudo = true;
+        if (duas_ && monSolo_) a.mudo = true;        // MON segurado: so o outro VFO toca
     }
     if (ajPrimeiro_ || !a.igual(ajEnviado_)) {
-        r_.som().ajustar(a);
+        r_->som().ajustar(a);
         ajEnviado_ = a;
         ajPrimeiro_ = false;
     }
@@ -2039,6 +2068,9 @@ void Ui::atualizarSom()
 // ===========================================================================
 void Ui::janelaConfig()
 {
+    // SDR990S (dois aparelhos): esta janela mexe no aparelho do VFO-A, mesmo ouvindo o B
+    struct VoltaR { Radio*& p; Radio* v; ~VoltaR() { p = v; } } voltaR{r_, r_};
+    r_ = ra_;
     ImGui::SetNextWindowSize(ImVec2(520 * s_, 0), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetIO().DisplaySize * 0.5f, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::Begin(T("Configuração###cfg"), &cfgAberta_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -2077,15 +2109,16 @@ void Ui::janelaConfig()
         }
         ImGui::SameLine();
         if (ImGui::Button(T("Procurar"))) {
-            lista_ = Radio::listar(r_.temDispositivo() ? r_.tipo() : std::string(), r_.serial(), cfgTipo_ == 2);
-            if (r_.temDispositivo() && r_.tipo() != "rtltcp") {
+            lista_ = Radio::listar(r_->temDispositivo() ? r_->tipo() : std::string(), r_->serial(), cfgTipo_ == 2);
+            if (r_->temDispositivo() && r_->tipo() != "rtltcp") {
                 bool achou = false;
-                for (const auto& d : lista_) if (d.tipo == r_.tipo() && d.serial == r_.serial()) achou = true;
-                if (!achou) lista_.insert(lista_.begin(), DispositivoInfo{r_.tipo(), r_.serial(), T("(em uso)")});
+                for (const auto& d : lista_) if (d.tipo == r_->tipo() && d.serial == r_->serial()) achou = true;
+                if (!achou) lista_.insert(lista_.begin(), DispositivoInfo{r_->tipo(), r_->serial(), T("(em uso)")});
             }
         }
     }
 
+    configVfoB();             // SDR990S: o aparelho do VFO-B (dois dongles)
     ImGui::SeparatorText(T("Recepção"));
     char tx[64];
     std::snprintf(tx, sizeof tx, "%.3f Msps", kTaxas[cfgTaxa_] / 1e6);
@@ -2142,7 +2175,7 @@ void Ui::janelaConfig()
         if (ImGui::IsItemDeactivatedAfterEdit()) mudou = true;
         if (mudou) aplicarAdsbRede();
         if (adsbRede_) {
-            auto& ar = r_.decoders().adsbRede();
+            auto& ar = r_->decoders().adsbRede();
             rot("");
             if (ar.conectado()) {
                 const auto e = ar.core().estado();
@@ -2183,7 +2216,7 @@ void Ui::janelaConfig()
         else if (cfgAssin_ != sig && agoraS() - cfgUltAplic_ > 0.12) {  // no maximo ~8 vezes por segundo
             cfgAssin_ = sig; cfgUltAplic_ = agoraS();
             gravarAjustes();
-            r_.aplicarConfig();
+            r_->aplicarConfig();
         }
     }
 
@@ -2227,12 +2260,12 @@ void Ui::janelaConfig()
         } else if (cfgDisp_ >= 0 && cfgDisp_ < (int)lista_.size() && lista_[cfgDisp_].tipo == tipoNovo) {
             serialNovo = lista_[cfgDisp_].serial;
         }
-        const bool trocou = !r_.temDispositivo() || tipoNovo != r_.tipo() ||
-                            (!serialNovo.empty() && serialNovo != r_.serial() && tipoNovo != "rtltcp") ||
-                            (tipoNovo == "rtltcp" && serialNovo != r_.serial());
+        const bool trocou = !r_->temDispositivo() || tipoNovo != r_->tipo() ||
+                            (!serialNovo.empty() && serialNovo != r_->serial() && tipoNovo != "rtltcp") ||
+                            (tipoNovo == "rtltcp" && serialNovo != r_->serial());
         cfgMsg_.clear();
         if (!trocou) {
-            r_.aplicarConfig();
+            r_->aplicarConfig();
             c.salvar();
             cfgAberta_ = false;
         } else if (tipoNovo == "rtltcp") {
@@ -2281,7 +2314,7 @@ void Ui::gravarAjustes()
     c.set("sdrplay_lna", cfgLna_); c.set("sdrplay_if_gain", cfgIfGain_); c.set("sdrplay_if_agc", cfgIfAgc_);
     c.set("s9_hf", cfgS9Hf_); c.set("s9_vhf", cfgS9Vhf_);
     const std::string saida = cfgSaida_ > 0 && cfgSaida_ <= (int)saidas_.size() ? saidas_[cfgSaida_ - 1] : std::string();
-    if (saida != c.str("audio_saida")) r_.trocarSaida(saida);
+    if (saida != c.str("audio_saida")) { ra_->trocarSaida(saida); rb_->trocarSaida(saida); }
     if (!ImGui::IsAnyItemActive()) c.salvar();        // grava quando solta o slider
 }
 
@@ -2289,11 +2322,11 @@ void Ui::gravarAjustes()
 bool Ui::trocarAparelho(const std::string& tipo, const std::string& serial)
 {
     std::string e;
-    if (!r_.selecionar(tipo, serial, e)) {
+    if (!r_->selecionar(tipo, serial, e)) {
         cfgMsg_ = T("Não foi possível abrir o aparelho: ") + e; cfgMsgErro_ = true;
         return false;
     }
-    r_.ligar(true, e);
+    r_->ligar(true, e);
     Config::instance().salvar();
     return true;
 }
@@ -2432,7 +2465,7 @@ void Ui::menuMemorias()
     if (!ImGui::BeginPopup("menuMem")) return;
     if (ImGui::MenuItem(T("Criar a partir do VFO atual"))) {
         memAberta_ = true;
-        std::snprintf(memNome_, sizeof memNome_, "%s %s", fmtFreq(r_.vfo()).c_str(), r_.modo().c_str());
+        std::snprintf(memNome_, sizeof memNome_, "%s %s", fmtFreq(r_->vfo()).c_str(), r_->modo().c_str());
     }
     if (ImGui::MenuItem(T("Editar / excluir…"))) memAberta_ = true;
     ImGui::Separator();
@@ -2516,7 +2549,7 @@ void Ui::janelaMemorias()
     ImGui::InputTextWithHint("##nome", T("nome para a frequência atual"), memNome_, sizeof memNome_);
     ImGui::SameLine();
     if (ImGui::Button(T("Salvar atual")) && memNome_[0]) {
-        Memoria m; m.nome = memNome_; m.f = r_.vfo(); m.modo = r_.modo();
+        Memoria m; m.nome = memNome_; m.f = r_->vfo(); m.modo = r_->modo();
         mem_.insert(std::upper_bound(mem_.begin(), mem_.end(), m, [](const Memoria& a, const Memoria& b) { return a.f < b.f; }), m);
         memNome_[0] = 0; memSujo_ = true; salvarMemorias();
     }
@@ -2575,7 +2608,7 @@ void Ui::janelaMemorias()
 // ===========================================================================
 void Ui::alternarGravacao()
 {
-    SomNativo& som = r_.som();
+    SomNativo& som = r_->som();
     static std::string arquivo;
     if (som.gravando()) {
         som.pararGravacao();
@@ -2590,7 +2623,7 @@ void Ui::alternarGravacao()
     char nome[128];
     std::snprintf(nome, sizeof nome, "\\SDR990S_%04d%02d%02d_%02d%02d%02d_%.3fkHz_%s.wav",
                   lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec,
-                  r_.vfo() / 1000.0, r_.modo().c_str());
+                  r_->vfo() / 1000.0, r_->modo().c_str());
     arquivo = pasta + nome;
     ultimaGravacao_ = arquivo;
     if (!som.gravar(arquivo)) {
@@ -3842,37 +3875,37 @@ void Ui::sintonizarDecoder(int t)
         medidasHfdl(b, lo, centro, taxa);
         // 1) a taxa primeiro; 2) o centro da banda; 3) o VFO no canal mais baixo, em USB
         auto& c = Config::instance();
-        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_.aplicarConfig(); decMudouTaxa_ = true; }
-        r_.centralizar((uint64_t)std::llround(centro * 1000));
+        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_->aplicarConfig(); decMudouTaxa_ = true; }
+        r_->centralizar((uint64_t)std::llround(centro * 1000));
         mudarModo("USB");
         sintonizar((uint64_t)std::llround(lo * 1000), false);
         decMudouFreq_ = true;
         // o dumphfdl recebe o centro e a taxa REAIS do aparelho
         decAj_.hfdlCanais = b.canais;
-        decAj_.hfdlCentroHz = (double)r_.centro();
-        decAj_.hfdlTaxa = r_.taxa();
+        decAj_.hfdlCentroHz = (double)r_->centro();
+        decAj_.hfdlTaxa = r_->taxa();
     } else if (t == Decoders::ACARS || t == Decoders::VDL2) {
         // ACARS: 131,550 e 131,825 juntos (centro no meio, 1,024 Msps ou mais)
         // VDL2 : 136,975 com o dongle em 1,05 Msps (o dumpvdl2 so aceita 105 kHz x N)
         const bool ac = t == Decoders::ACARS;
         auto& c = Config::instance();
         const unsigned taxa = ac ? (c.sampleRate() >= 900000 ? c.sampleRate() : 1024000u) : Vdl2::kTaxa;
-        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_.aplicarConfig(); decMudouTaxa_ = true; }
+        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_->aplicarConfig(); decMudouTaxa_ = true; }
         const std::vector<double> canais = ac ? std::vector<double>{131550000, 131825000} : std::vector<double>{136975000};
         const double centro = ac ? 131687500 : 136875000;
-        r_.centralizar((uint64_t)centro);
+        r_->centralizar((uint64_t)centro);
         mudarModo("AM");
         sintonizar((uint64_t)canais[0], false);
         decMudouFreq_ = true;
-        if (ac) { decAj_.acarsCanais = canais; decAj_.acarsCentroHz = (double)r_.centro(); decAj_.acarsTaxa = r_.taxa(); }
-        else    { decAj_.vdl2Canais = canais;  decAj_.vdl2CentroHz = (double)r_.centro();  decAj_.vdl2Taxa = r_.taxa(); }
+        if (ac) { decAj_.acarsCanais = canais; decAj_.acarsCentroHz = (double)r_->centro(); decAj_.acarsTaxa = r_->taxa(); }
+        else    { decAj_.vdl2Canais = canais;  decAj_.vdl2CentroHz = (double)r_->centro();  decAj_.vdl2Taxa = r_->taxa(); }
     } else if (t == Decoders::ADSB) {
         // ADS-B: 1090 MHz no centro do dongle, 2,4 Msps (a 2,0 Msps os pulsos
         // de 0,5 us perdem a forma e metade das mensagens se perde)
         auto& c = Config::instance();
         const unsigned taxa = 2400000u;
-        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_.aplicarConfig(); decMudouTaxa_ = true; }
-        r_.centralizar(1090000000ull);
+        if (c.sampleRate() != taxa) { c.set("sample_rate", (long long)taxa); r_->aplicarConfig(); decMudouTaxa_ = true; }
+        r_->centralizar(1090000000ull);
         mudarModo("AM");
         sintonizar(1090000000ull, false);
         decMudouFreq_ = true;
@@ -3885,8 +3918,8 @@ void Ui::sintonizarDecoder(int t)
     } else if (t == Decoders::APRS) {
         const CanalAprs& a = kAprs[std::clamp(decAprsCanal_, 0, 3)];
         decAj_.aprsBaud = a.baud;
-        if (a.baud == 300) { mudarModo("USB"); r_.setBanda(3000); }
-        else { mudarModo("NFM"); r_.setBanda(12500); }
+        if (a.baud == 300) { mudarModo("USB"); r_->setBanda(3000); }
+        else { mudarModo("NFM"); r_->setBanda(12500); }
         sintonizar(a.hz, false);
         decMudouFreq_ = true;
     }
@@ -3909,14 +3942,14 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
         }
     }
     decMin_ = false;          // escolher um decodificador traz o painel de volta da barra
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     if (t == Decoders::NENHUM) { d.parar(); decRodando_ = false; devolverModo(); return; }
     if (t == Decoders::SATELITES) {
         // o painel de satelites; o decodificador de verdade (SSTV, APRS ou
         // nenhum) e o que o satelite sintonizado pede
         if (sintonizarModo && !decModoGuardado_) {
-            decModoAntes_ = r_.modo(); decBwAntes_ = r_.banda(); decModoGuardado_ = true;
-            decFreqAntes_ = r_.vfo(); decTaxaAntes_ = Config::instance().sampleRate();
+            decModoAntes_ = r_->modo(); decBwAntes_ = r_->banda(); decModoGuardado_ = true;
+            decFreqAntes_ = r_->vfo(); decTaxaAntes_ = Config::instance().sampleRate();
             decMudouFreq_ = decMudouTaxa_ = false;
         }
         if (!sintonizarModo) decRodando_ = false;   // Iniciar / Reiniciar: liga de novo
@@ -3928,72 +3961,72 @@ void Ui::escolherDecoder(int t, bool sintonizarModo)
                                     t == Decoders::ACARS || t == Decoders::VDL2 || t == Decoders::ADSB;
     const bool centroFixo = t == Decoders::HFDL || t == Decoders::ACARS || t == Decoders::VDL2 || t == Decoders::ADSB;
     if ((sintonizarModo || externoComSintonia) && !decModoGuardado_) {   // para devolver o radio como estava
-        decModoAntes_ = r_.modo(); decBwAntes_ = r_.banda(); decModoGuardado_ = true;
-        decFreqAntes_ = r_.vfo(); decTaxaAntes_ = Config::instance().sampleRate();
+        decModoAntes_ = r_->modo(); decBwAntes_ = r_->banda(); decModoGuardado_ = true;
+        decFreqAntes_ = r_->vfo(); decTaxaAntes_ = Config::instance().sampleRate();
         decMudouFreq_ = decMudouTaxa_ = false;
     }
     // O HFDL sempre re-sintoniza (o dumphfdl precisa do centro combinado);
     // AIS e APRS so quando escolhidos agora (Reiniciar nao tira de onde voce pos)
     if (centroFixo || (externoComSintonia && sintonizarModo)) sintonizarDecoder(t);
-    if (t == Decoders::HFDL) decAj_.hfdlCentroHz = (double)r_.centro(), decAj_.hfdlTaxa = r_.taxa();
+    if (t == Decoders::HFDL) decAj_.hfdlCentroHz = (double)r_->centro(), decAj_.hfdlTaxa = r_->taxa();
     d.iniciar((Decoders::Tipo)t, decAj_);
     decRodando_ = true;
     if (!sintonizarModo || externoComSintonia) return;
-    const std::string m = r_.modo();
+    const std::string m = r_->modo();
     if (t == Decoders::DRM) {
         // o dream recebe o IQ (canal inteiro); AM 10 kHz so marca o canal na
         // tela. O audio decodificado toca no lugar do audio do radio.
         if (m != "AM") mudarModo("AM");
-        r_.setBanda(10000);
+        r_->setBanda(10000);
     } else if (t == Decoders::SSTV) {
         // SSTV de radioamador: USB (20/15/10 m), LSB (40/80 m) ou FM (ISS, VHF)
         if (m != "USB" && m != "LSB" && m != "NFM" && m != "FM") mudarModo("USB");
-        if ((r_.modo() == "USB" || r_.modo() == "LSB") && r_.banda() < 3000) r_.setBanda(3000);   // o branco e 2300 Hz
+        if ((r_->modo() == "USB" || r_->modo() == "LSB") && r_->banda() < 3000) r_->setBanda(3000);   // o branco e 2300 Hz
         sstvAumentar_ = true;
     } else if (t == Decoders::WEFAX) {
         // fax: USB, 1500-2300 Hz; a janela cresce para caber a imagem
         if (m != "USB") mudarModo("USB");
-        if (r_.banda() < 3000) r_.setBanda(3000);
+        if (r_->banda() < 3000) r_->setBanda(3000);
         sstvAumentar_ = true;
     } else if (t == Decoders::DMR) {
         // o dsd-fme quer o FM cru de um canal de 12,5 kHz
         if (m != "NFM" && m != "FM") mudarModo("NFM");
-        if (r_.banda() < 12500) r_.setBanda(12500);
+        if (r_->banda() < 12500) r_->setBanda(12500);
     } else if (t == Decoders::TETRA) {
         // igual a pagina: NFM com 25 kHz (so para a marca e o som de fundo;
         // o TETRA usa o IQ, nao o audio)
         if (m != "NFM") mudarModo("NFM");
-        r_.setBanda(25000);
+        r_->setBanda(25000);
     } else if (t == Decoders::CW) {
         if (m != "CW" && m != "USB" && m != "LSB") mudarModo("CW");
     } else if (t == Decoders::OLIVIA) {
         // o texto do OLIVIA e curto: a janela encolhe (um pouco menos da metade)
         if (m != "USB") mudarModo("USB");
-        if (r_.banda() < 3000) r_.setBanda(3000);
+        if (r_->banda() < 3000) r_->setBanda(3000);
         oliviaEncolher_ = true;
     } else if (t == Decoders::SELCAL) {
         // fonia aeronautica em HF: USB, e os tons vao de 312 a 1558 Hz
         if (m != "USB") mudarModo("USB");
-        if (r_.banda() < 2800) r_.setBanda(2800);
+        if (r_->banda() < 2800) r_->setBanda(2800);
     } else if (t == Decoders::STANAG) {
         // a portadora unica de 1800 Hz pede USB com banda folgada (o sinal
         // vai e vem ~1,65 kHz em volta de 1800 Hz)
         if (m != "USB") mudarModo("USB");
-        if (r_.banda() < 3000) r_.setBanda(3000);
+        if (r_->banda() < 3000) r_->setBanda(3000);
     } else if (t == Decoders::BPSK) {
         // PSK31/63/125/250 e os "R": portadora unica em 1800 Hz, USB e 3 kHz
         if (m != "USB") mudarModo("USB");
-        if (r_.banda() < 3000) r_.setBanda(3000);
+        if (r_->banda() < 3000) r_->setBanda(3000);
     } else if (t != Decoders::ANALISE) {
         // Os nucleos FSK esperam USB (mark = tom alto), igual a pagina.
         // Para RTTY de radioamador em LSB existe o "Inverter".
         if (m != "USB") mudarModo("USB");
-        if (t == Decoders::ALE) r_.setBanda(3000);   // o ALE vai ate 2750 Hz
-        if ((t == Decoders::FT8 || t == Decoders::FT4) && r_.banda() < 3000) r_.setBanda(3000);   // o FT8 vai ate ~3000 Hz
+        if (t == Decoders::ALE) r_->setBanda(3000);   // o ALE vai ate 2750 Hz
+        if ((t == Decoders::FT8 || t == Decoders::FT4) && r_->banda() < 3000) r_->setBanda(3000);   // o FT8 vai ate ~3000 Hz
         if (t == Decoders::FT8 || t == Decoders::FT4) {
             // ja esta numa banda de radioamador: vai para a frequencia do FT8 (FT4) dela
-            const uint64_t hz = freqFt8NaBanda(r_.vfo(), t == Decoders::FT4);
-            if (hz && hz != r_.vfo()) { sintonizar(hz, false); decMudouFreq_ = true; }
+            const uint64_t hz = freqFt8NaBanda(r_->vfo(), t == Decoders::FT4);
+            if (hz && hz != r_->vfo()) { sintonizar(hz, false); decMudouFreq_ = true; }
             sstvAumentar_ = true;    // a janela cresce para caber a lista
         }
     }
@@ -4192,10 +4225,10 @@ void Ui::devolverModo()
     decModoGuardado_ = false;
     if (decMudouTaxa_ && decTaxaAntes_) {
         Config::instance().set("sample_rate", (long long)decTaxaAntes_);
-        r_.aplicarConfig();
+        r_->aplicarConfig();
     }
-    if (!decModoAntes_.empty() && r_.modo() != decModoAntes_) mudarModo(decModoAntes_);
-    if (decBwAntes_ > 0) r_.setBanda(decBwAntes_);
+    if (!decModoAntes_.empty() && r_->modo() != decModoAntes_) mudarModo(decModoAntes_);
+    if (decBwAntes_ > 0) r_->setBanda(decBwAntes_);
     if (decMudouFreq_ && decFreqAntes_) sintonizar(decFreqAntes_, false);
     decMudouFreq_ = decMudouTaxa_ = false;
 }
@@ -4242,9 +4275,9 @@ static IDirect3DTexture9* texturaArgb(IDirect3DDevice9* dev, const uint32_t* px,
 // imagens terminadas (ja salvas pelo Decoders) -> historico.
 void Ui::atualizarSstv()
 {
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     auto& sv = d.sstv();
-    d.sstvVfoHz = r_.vfo();
+    d.sstvVfoHz = r_->vfo();
     d.sstvSalvar = sstvSalvar_;
     Decoders::ImagemSstv im;
     while (d.pegarImagemSstv(im)) {
@@ -4272,7 +4305,7 @@ void Ui::atualizarSstv()
 
 void Ui::painelSstv()
 {
-    auto& sv = r_.decoders().sstv();
+    auto& sv = r_->decoders().sstv();
     const SstvCore::Status stt = sv.status();
 
     // --- linha 1: frequencia, VIS automatico, inclinacao, salvar ---
@@ -4288,7 +4321,7 @@ void Ui::painelSstv()
                 sstvFreqSel_ = i;
                 const FreqSstv& f = kFreqSstv[i];
                 mudarModo(f.modo);
-                r_.setBanda(std::string(f.modo) == "NFM" ? 20000 : 3000);   // ISS: Doppler de ate 3,5 kHz
+                r_->setBanda(std::string(f.modo) == "NFM" ? 20000 : 3000);   // ISS: Doppler de ate 3,5 kHz
                 sintonizar(f.hz, false);
                 decMudouFreq_ = true;
             }
@@ -4465,7 +4498,7 @@ void Ui::painelSstv()
 // ---------------------------------------------------------------------------
 void Ui::atualizarWefax()
 {
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     d.wefaxSalvar = wfxSalvar_;
     Decoders::ImagemWefax im;
     while (d.pegarImagemWefax(im)) {
@@ -4519,7 +4552,7 @@ void Ui::atualizarWefax()
 
 void Ui::painelWefax()
 {
-    auto& wf = r_.decoders().wefax();
+    auto& wf = r_->decoders().wefax();
     const WefaxCore::Status stt = wf.status();
 
     // --- linha 1: canal (em ordem de horario), LPM, IOC ---
@@ -4530,8 +4563,8 @@ void Ui::painelWefax()
         const CanalDec& c = kCanaisWefax[decCanalWefax_];
         wfxLpm_ = (int)c.baud; wfxIoc_ = (int)c.shift;
         wf.configurar(wfxLpm_, wfxIoc_);
-        if (r_.modo() != "USB") mudarModo("USB");
-        if (r_.banda() < 3000) r_.setBanda(3000);
+        if (r_->modo() != "USB") mudarModo("USB");
+        if (r_->banda() < 3000) r_->setBanda(3000);
         sintonizar(c.hz, false);                 // WEFAX: a lista ja da a frequencia do mostrador (USB)
         decMudouFreq_ = true;
         escolherDecoder(Decoders::WEFAX, false); // volta a esperar o tom de inicio
@@ -4561,6 +4594,10 @@ void Ui::painelWefax()
     bool aut = wf.automatico.load();
     if (ImGui::Checkbox(T("Automático"), &aut)) wf.automatico = aut;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("O tom de início (300 Hz) começa a imagem e o de fim (450 Hz) termina e salva"));
+    ImGui::SameLine();
+    bool afc = wf.afc.load();
+    if (ImGui::Checkbox(T("Corrigir sintonia"), &afc)) wf.afc = afc;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(T("Acha sozinho onde estão o preto e o branco (o normal é 1500/2300 Hz, com o rádio na frequência do mostrador). Rádio fora da frequência certa (ex.: 9109,0 em vez de 9108,1 kHz) desloca os tons e a imagem sai escura; com esta opção ela sai certa, até uns ±1000 Hz"));
     ImGui::SameLine();
     bool inv = wf.inverter.load();
     if (ImGui::Checkbox(T("Inverter (negativo)"), &inv)) wf.inverter = inv;
@@ -4688,13 +4725,13 @@ uint64_t Ui::freqFt8NaBanda(uint64_t vfo, bool ft4)
 
 void Ui::painelFt8()
 {
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     const bool ft4 = decTipo_ == Decoders::FT4;
     const FreqFt8* tab = ft4 ? kFreqFt4 : kFreqFt8;
     const int n = ft4 ? (int)(sizeof kFreqFt4 / sizeof kFreqFt4[0]) : (int)(sizeof kFreqFt8 / sizeof kFreqFt8[0]);
     int atual = -1;
     for (int i = 0; i < n; ++i)
-        if (std::llabs((long long)r_.vfo() - std::llround(tab[i].khz * 1000.0)) < 1500) atual = i;
+        if (std::llabs((long long)r_->vfo() - std::llround(tab[i].khz * 1000.0)) < 1500) atual = i;
     char nome[48];
     if (atual >= 0) std::snprintf(nome, sizeof nome, "%s   %.1f kHz", tab[atual].banda, tab[atual].khz);
     ImGui::AlignTextToFramePadding();
@@ -4706,8 +4743,8 @@ void Ui::painelFt8()
             char b[48];
             std::snprintf(b, sizeof b, "%s   %.1f kHz USB", tab[i].banda, tab[i].khz);
             if (ImGui::Selectable(b, atual == i)) {
-                if (r_.modo() != "USB") mudarModo("USB");
-                if (r_.banda() < 3000) r_.setBanda(3000);
+                if (r_->modo() != "USB") mudarModo("USB");
+                if (r_->banda() < 3000) r_->setBanda(3000);
                 sintonizar((uint64_t)std::llround(tab[i].khz * 1000.0), false);
                 decMudouFreq_ = true;
             }
@@ -4915,7 +4952,7 @@ void Ui::tabelaFt8(bool chegou)
 
 void Ui::janelaDecoders()
 {
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     // Janela de decodificadores minimizada (qualquer decodificador): mistura
     // a janela inteira numa barra fina fixa no rodape da janela do app (o
     // radio continua a vista). O estado vive em decMin_, e o "Minimizar" do
@@ -5089,12 +5126,12 @@ void Ui::janelaDecoders()
             const auto& c = lista[sel];
             if (aplicaFsk && c.baud > 0) { decAj_.rttyBaud = c.baud; decAj_.rttyShift = c.shift; }
             if (decTipo_ == Decoders::SITORB) decAj_.sitorShift = c.shift > 0 ? c.shift : 170.f;
-            if (r_.modo() != "USB") mudarModo("USB");
-            if (decTipo_ == Decoders::ALE) r_.setBanda(3000);
+            if (r_->modo() != "USB") mudarModo("USB");
+            if (decTipo_ == Decoders::ALE) r_->setBanda(3000);
             // Os tons ficam em ~1700 Hz (SITOR-B/DSC) ou ~1500 Hz (PACTOR): com
             // a largura em 1,4 kHz eles caiam na borda do filtro e o texto saia
             // picado (visto em 16806,5 kHz). Abaixo de 3 kHz, abre para 3 kHz.
-            else if (r_.banda() < 3000) r_.setBanda(3000);
+            else if (r_->banda() < 3000) r_->setBanda(3000);
             // SITOR-B/DSC: publicado = centro do FSK -> VFO 1700 Hz abaixo (tons em ~1700 Hz)
             const bool centroFsk = decTipo_ == Decoders::SITORB || decTipo_ == Decoders::DSC;
             const bool centroPactor = decTipo_ == Decoders::PACTOR;   // tons em 1400/1600 Hz
@@ -5161,14 +5198,14 @@ void Ui::janelaDecoders()
         linhaCanal(kCanaisOlivia, decCanalOlivia_, false, true);
         if (decCanalOlivia_ != antes && decCanalOlivia_ >= 0) {
             const CanalDec& c = kCanaisOlivia[decCanalOlivia_];
-            r_.decoders().olivia().setModo(c.tons, c.olBanda);
+            r_->decoders().olivia().setModo(c.tons, c.olBanda);
         }
         ImGui::SameLine();
         ImGui::TextDisabled(T("USB - o conjunto de tons e centrado em 1500 Hz acima do dial"));
         ImGui::TextDisabled(T("As frequencias sao as de chamada do site oliviadigitalmode.org. O centro do sinal e 1500 Hz"));
         ImGui::TextDisabled(T("acima do radio: por isso o VFO fica 1500 Hz abaixo do valor da lista. O texto decodificado"));
         ImGui::TextDisabled(T("aparece na caixa de baixo. O desvio (ate 125 Hz para cada lado) e o instante dos simbolos sao achados sozinhos."));
-        const auto eo = r_.decoders().olivia().estado();
+        const auto eo = r_->decoders().olivia().estado();
         if (eo.ok) {
             if (eo.travado) ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("decodificando: %d tons (%.0f-%.0f Hz)  |  %d bloco(s)"),
                                                 eo.nTons, eo.tomBaixo, eo.tomAlto, eo.blocos);
@@ -5214,7 +5251,7 @@ void Ui::janelaDecoders()
             ImGui::SetTooltip(T("O longo (j=12/24) e o das frotas; o primeiro texto demora ~10 s.\nO curto (j=1/2) responde em ~1 s, porem quase ninguem transmite nele agora."));
         ImGui::TextDisabled(T("Escolha a frequência: o VFO vai 1800 Hz abaixo dela e o rádio fica em USB com 3 kHz."));
         ImGui::TextDisabled(T("Com o entrelacador longo o texto comeca a sair depois de uns 10 segundos de sinal."));
-        const auto es = r_.decoders().stanag().estado();
+        const auto es = r_->decoders().stanag().estado();
         if (es.ok)
             ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("SINCRONIZADO: SNR %.1f dB  |  desvio %+.1f Hz  |  %d quadros  |  %d bits de dados"),
                                es.snrDb, es.desvioHz, es.quadros, es.bits);
@@ -5263,7 +5300,7 @@ void Ui::janelaDecoders()
         }
         ImGui::TextDisabled(T("QPSK31/63/125 e BPSK63F/125F usam correcao FEC (Viterbi, sem Reed-Solomon)."));
         ImGui::TextDisabled(T("O VFO fica 1800 Hz abaixo do valor: e o mesmo esquema do STANAG. O texto sai na caixa de baixo."));
-        const auto eb = r_.decoders().bpsk().estado();
+        const auto eb = r_->decoders().bpsk().estado();
         if (eb.ok)
             ImGui::TextColored(ImVec4(0.2f, 1.f, 0.45f, 1), T("recebendo %s: nivel %.1f dB  |  desvio %+.1f Hz  |  qualidade %.0f  |  %ld caracteres"),
                                BpskCore::nomeModo(decAj_.bpskModo), eb.nivelDb, eb.desvioHz, eb.metrica, eb.caracteres);
@@ -5490,11 +5527,11 @@ void Ui::janelaDecoders()
         auto irPara = [&](int i) {
             decDrmSel_ = i;
             const uint64_t hz = (uint64_t)kDrm[i].khz * 1000;
-            if (r_.modo() != "AM") mudarModo("AM");
-            r_.setBanda(10000);
+            if (r_->modo() != "AM") mudarModo("AM");
+            r_->setBanda(10000);
             sintonizar(hz, false);
             // o centro do dongle 20 kHz ao lado: o DC nao cai no canal
-            if (zoom_ <= 0 && r_.taxa() >= 200000) r_.centralizar(hz + 20000);
+            if (zoom_ <= 0 && r_->taxa() >= 200000) r_->centralizar(hz + 20000);
             decMudouFreq_ = true;
             escolherDecoder(Decoders::DRM, false);    // recomeca a procura do sinal
         };
@@ -5534,7 +5571,7 @@ void Ui::janelaDecoders()
                 if (ImGui::GetContentRegionAvail().x < 90 * s_) ImGui::NewLine();
                 char rot[48];
                 std::snprintf(rot, sizeof rot, "%d##noar%d", kDrm[i].khz, i);
-                const bool atualEsta = (int64_t)r_.vfo() == (int64_t)kDrm[i].khz * 1000;
+                const bool atualEsta = (int64_t)r_->vfo() == (int64_t)kDrm[i].khz * 1000;
                 if (atualEsta) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.45f, 0.2f, 1));
                 if (ImGui::SmallButton(rot)) irPara(i);
                 if (atualEsta) ImGui::PopStyleColor();
@@ -5907,7 +5944,7 @@ void Ui::linhaIf()
     if (ifTex_->LockRect(0, &lr, &rc, 0) != D3D_OK) return;
     uint32_t* d = (uint32_t*)lr.pBits;
     int8_t* o = &ifDb_[(size_t)ifPos_ * ifW_];
-    const double f0 = (double)r_.vfo() - kIfSpan / 2;
+    const double f0 = (double)r_->vfo() - kIfSpan / 2;
     for (int x = 0; x < ifW_; ++x) {
         bool dentro;
         const float db = dbNoBin(fft_.bins, f0 + x * kIfSpan / (ifW_ - 1), fft_.centro, fft_.taxa, dentro);
@@ -5944,19 +5981,19 @@ void Ui::ifDisplay(float x, float y, float w, float h)
 
     const float ys = y + hc, hs = std::floor((h - hc) * 0.34f);
     const float yw = ys + hs + 1, hw = y + h - yw - 1;
-    const double f0 = (double)r_.vfo() - kIfSpan / 2;
+    const double f0 = (double)r_->vfo() - kIfSpan / 2;
     auto hzX = [&](double hz) { return x + (float)((hz - f0) / kIfSpan * w); };
 
     // --- espectro ---
     dl->PushClipRect(ImVec2(x + 1, ys), ImVec2(x + w - 1, ys + hs), true);
     // faixa passante (muda de lado conforme o modo, como na pagina)
-    const std::string m = r_.modo();
-    const int bw = r_.banda();
-    double fa = (double)r_.vfo() - bw / 2.0;
-    if (m == "USB") fa = (double)r_.vfo();
-    else if (m == "LSB") fa = (double)r_.vfo() - bw;
+    const std::string m = r_->modo();
+    const int bw = r_->banda();
+    double fa = (double)r_->vfo() - bw / 2.0;
+    if (m == "USB") fa = (double)r_->vfo();
+    else if (m == "LSB") fa = (double)r_->vfo() - bw;
     dl->AddRectFilled(ImVec2(hzX(fa), ys), ImVec2(std::max(hzX(fa + bw), hzX(fa) + 1), ys + hs), IM_COL32(255, 220, 0, 31));
-    if (r_.ligado() && suave_.size() > 1) {
+    if (r_->ligado() && suave_.size() > 1) {
         const float ref = (wfBrilho_ - 100.f) * 0.5f, range = std::max(10.f, wfRange_);
         const int cols = std::max(2, (int)w);
         std::vector<ImVec2> pts(cols);
@@ -5968,14 +6005,14 @@ void Ui::ifDisplay(float x, float y, float w, float h)
         }
         dl->AddPolyline(pts.data(), cols, IM_COL32(0x39, 0xff, 0x14, 255), 0, 1.f * s_);
     }
-    const float xc = hzX((double)r_.vfo());
+    const float xc = hzX((double)r_->vfo());
     dl->AddLine(ImVec2(xc, ys), ImVec2(xc, ys + hs), IM_COL32(255, 255, 255, 140));
     dl->PopClipRect();
     dl->AddLine(ImVec2(x, ys + hs), ImVec2(x + w, ys + hs), C_BORDER);
 
     // --- cachoeira ---
     dl->AddRectFilled(ImVec2(x + 1, yw), ImVec2(x + w - 1, yw + hw), IM_COL32(0, 0, 32, 255));
-    if (ifTex_ && r_.ligado() && hw > 2) {
+    if (ifTex_ && r_->ligado() && hw > 2) {
         const int hd = linhasMostradas(hw, ifH_);
         const float esc = hw / hd;
         const int p = ifPos_;
@@ -6002,7 +6039,7 @@ void Ui::ifDisplay(float x, float y, float w, float h)
         dl->AddLine(ImVec2(io.MousePos.x, ys), ImVec2(io.MousePos.x, y + h), IM_COL32(255, 255, 255, 50));
         if (ImGui::IsItemClicked()) sintonizar((uint64_t)std::max(0.0, hz), true);
         if (io.MouseWheel != 0) {
-            const int64_t v = (int64_t)r_.vfo() + (io.MouseWheel > 0 ? passo_ : -passo_);
+            const int64_t v = (int64_t)r_->vfo() + (io.MouseWheel > 0 ? passo_ : -passo_);
             if (v > 0) sintonizar((uint64_t)v, false);
         }
     }

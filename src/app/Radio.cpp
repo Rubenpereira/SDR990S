@@ -12,6 +12,7 @@
 #include "../sdr/RtlSdrDevice.h"
 #include "../sdr/SdrplayDevice.h"
 #include "../util/Logger.h"
+#include "../dsp/AjustesDsp.h"
 
 #include <algorithm>
 #include <chrono>
@@ -28,19 +29,41 @@ static int64_t agoraMs()
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-Radio::Radio() = default;
+Radio::Radio(const std::string& prefixo) : pre_(prefixo) {}
+
+// MB1SDR: as chaves do INI de cada aparelho (VFO-A sem prefixo, VFO-B com "b_")
+std::string Radio::cstr(const char* k, const std::string& def) const
+{
+    const auto& c = Config::instance();
+    if (!pre_.empty()) { const std::string v = c.str(pre_ + k); if (!v.empty()) return v; }
+    return c.str(k, def);
+}
+long long Radio::cnum(const char* k, long long def) const
+{
+    const std::string s = cstr(k, "");
+    return s.empty() ? def : std::strtoll(s.c_str(), nullptr, 10);
+}
+bool Radio::cflag(const char* k, bool def) const
+{
+    const std::string s = cstr(k, "");
+    return s.empty() ? def : (s == "1" || s == "true" || s == "sim");
+}
+std::string Radio::cdev(const char* k, const std::string& def) const
+{
+    return Config::instance().str(pre_ + k, def);
+}
 Radio::~Radio() { encerrar(); }
 
 bool Radio::iniciar()
 {
     auto& c = Config::instance();
-    vfo_.store((uint64_t)c.num("vfo", 7100000));
+    vfo_.store((uint64_t)c.num(chave("vfo"), pre_.empty() ? 7100000 : 145500000));
     {
         std::lock_guard<std::mutex> lk(modoMutex_);
-        modo_ = c.str("modo", "LSB");
+        modo_ = c.str(chave("modo"), pre_.empty() ? "LSB" : "NFM");
     }
-    bw_.store((int)c.num("bw", 2400));
-    xvtr_.store((uint64_t)std::max<long long>(0, c.num("xvtr", 0)));
+    bw_.store((int)c.num(chave("bw"), pre_.empty() ? 2400 : 10000));
+    xvtr_.store((uint64_t)std::max<long long>(0, c.num(chave("xvtr"), 0)));
     fftN_ = (size_t)std::max(1024, c.fftSize());
     fft_ = std::make_unique<FftProcessor>(fftN_);
     novoDemod();
@@ -111,14 +134,14 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
     std::string arg = serialPedido;
     if (tipo == "rtltcp") {
         if (arg.find(':') == std::string::npos)
-            arg = c.tcpHost() + ":" + std::to_string(c.tcpPort());
+            arg = cdev("rtltcp_host", "127.0.0.1") + ":" + cdev("rtltcp_port", "1234");
     }
     const uint64_t f = vfo_.load();
     qAtual_ = (tipo != "sdrplay") && usarQ(f);
-    d->setSampleRate(c.sampleRate());
+    d->setSampleRate((uint32_t)cnum("sample_rate", 1024000));
     d->setQuadrature(qAtual_);
-    d->setPpm(c.ppm());
-    d->setBias(c.biasT());
+    d->setPpm((int)cnum("ppm", 0));
+    d->setBias(cflag("bias_t", false));
     // abre com o centro ao lado do VFO: cravado nele, o "apito" do DC caia em
     // cima da estacao ate a primeira sintonia fora da tela (visto em 8580,5 kHz)
     const uint64_t centro = centroSemDc(f);
@@ -133,17 +156,17 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
     dev_ = d;
     tipo_ = tipo;
     serial_ = d->serial().empty() ? arg : d->serial();
-    c.set("device", tipo_);
-    c.set("serial", tipo == "rtltcp" ? std::string() : serial_);
+    c.set(chave("device"), tipo_);
+    c.set(chave("serial"), tipo == "rtltcp" ? std::string() : serial_);
     dcBlock_.reset();
     iqCorr_.reset();
     fase_ = 0.0;
     // Algumas opcoes so pegam depois do open (mesma ordem do RXSDR principal).
-    dev_->setSampleRate(c.sampleRate());
+    dev_->setSampleRate((uint32_t)cnum("sample_rate", 1024000));
     dev_->setQuadrature(qAtual_);
-    dev_->setPpm(c.ppm());
-    ppmAplicado_ = c.ppm();
-    dev_->setBias(c.biasT());
+    dev_->setPpm((int)cnum("ppm", 0));
+    ppmAplicado_ = (int)cnum("ppm", 0);
+    dev_->setBias(cflag("bias_t", false));
     dev_->setCenterFreq((centro) + xvtr_.load());
     if (tipo_ == "sdrplay") {
         if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
@@ -159,8 +182,9 @@ bool Radio::selecionar(const std::string& tipo, const std::string& serialPedido,
 bool Radio::ligar(bool on, std::string& erro)
 {
     if (on && !dev_) {
-        auto& c = Config::instance();
-        if (!selecionar(c.device(), c.serial(), erro)) return false;
+        const std::string tp = cdev("device", pre_.empty() ? "rtlsdr" : "");
+        if (tp.empty()) { erro = T("o VFO-B ainda nao tem aparelho (CONFIGURACAO > VFO-B)"); return false; }
+        if (!selecionar(tp, cdev("serial", ""), erro)) return false;
     }
     std::lock_guard<std::mutex> lk(devMutex_);
     if (!dev_) return !on;
@@ -180,7 +204,7 @@ bool Radio::ligar(bool on, std::string& erro)
 bool Radio::sintonizar(uint64_t hz)
 {
     vfo_.store(hz);
-    Config::instance().set("vfo", (long long)hz);
+    Config::instance().set(chave("vfo"), (long long)hz);
     std::lock_guard<std::mutex> lk(devMutex_);
     if (!dev_) return false;
     const auto& c = Config::instance();
@@ -206,7 +230,7 @@ void Radio::setXvtr(uint64_t hz)
 {
     const uint64_t c = centro();
     xvtr_.store(hz);
-    Config::instance().set("xvtr", (long long)hz);
+    Config::instance().set(chave("xvtr"), (long long)hz);
     centralizar(c);
 }
 
@@ -219,7 +243,7 @@ uint64_t Radio::centroSemDc(uint64_t vfo)
 {
     const auto td = dec_.tipo();
     if (td == Decoders::HFDL || td == Decoders::ACARS || td == Decoders::VDL2 || td == Decoders::ADSB) return vfo;
-    if (Config::instance().sampleRate() < 200000) return vfo;
+    if (cnum("sample_rate", 1024000) < 200000) return vfo;
     const std::string m = modo();
     int64_t d;
     if (m == "WFM") return vfo;
@@ -252,7 +276,7 @@ uint32_t Radio::taxa() const
 {
     std::lock_guard<std::mutex> lk(devMutex_);
     auto d = dev_;
-    return d ? d->sampleRate() : Config::instance().sampleRate();
+    return d ? d->sampleRate() : (uint32_t)cnum("sample_rate", 1024000);
 }
 
 bool Radio::qAtivo() const { return qAtual_; }
@@ -264,7 +288,7 @@ void Radio::setModo(const std::string& m)
         if (m == modo_) return;
         modo_ = m;
     }
-    Config::instance().set("modo", m);
+    Config::instance().set(chave("modo"), m);
     novoDemod();
 }
 
@@ -277,7 +301,7 @@ std::string Radio::modo() const
 void Radio::setBanda(int hz)
 {
     bw_.store(hz);
-    Config::instance().set("bw", hz);
+    Config::instance().set(chave("bw"), hz);
     std::lock_guard<std::mutex> lk(demodMutex_);
     if (demod_) demod_->setBandwidth((uint32_t)hz);
 }
@@ -297,9 +321,8 @@ static const int kTetoPamp[3] = {460, 475, 496};   // dB x 10
 
 int Radio::ganhoTuner(int tenths) const
 {
-    const auto& c = Config::instance();
-    if (c.agc()) return -1;
-    const int g = std::clamp(tenths == -999 ? c.gainTenths() : tenths, 0, 496);
+    if (cflag("agc", false)) return -1;
+    const int g = std::clamp(tenths == -999 ? (int)cnum("gain", 496) : tenths, 0, 496);
     const int teto = kTetoPamp[std::clamp(preampNivel_.load(), 0, 2)];
     return (int)std::lround(g * (double)teto / 496.0);
 }
@@ -330,7 +353,7 @@ int Radio::efeitoPreamp() const
     std::unique_lock<std::mutex> lk(devMutex_, std::try_to_lock);
     if (!lk.owns_lock() || !dev_) return -1;
     if (tipo_ == "sdrplay") return c.sdrplayIfAgc() ? 0 : 2;
-    if (c.agc() || qAtual_) return 0;
+    if (cflag("agc", false) || qAtual_) return 0;
     return 1;
 }
 
@@ -339,7 +362,7 @@ int Radio::ganhoTunerAgora() const { return ganhoTuner(); }
 void Radio::setGanho(int tenths)
 {
     auto& c = Config::instance();
-    c.set("gain", tenths);
+    c.set(chave("gain"), tenths);
     std::lock_guard<std::mutex> lk(devMutex_);
     if (dev_ && tipo_ != "sdrplay") dev_->setGain(ganhoTuner(tenths));
 }
@@ -360,16 +383,18 @@ void Radio::aplicarConfig()
     // Cancelar o read_async e reabrir em seguida derrubava o programa dentro
     // do libusb (aconteceu ao aplicar AGC e ao aplicar PPM). O rtl_tcp faz
     // igual: taxa, PPM, ganho e amostragem direta sao trocados ao vivo.
-    const bool reinicia = dev_->sampleRate() != c.sampleRate() || q != qAtual_ || c.ppm() != ppmAplicado_;
+    const uint32_t sr = (uint32_t)cnum("sample_rate", 1024000);
+    const int ppm = (int)cnum("ppm", 0);
+    const bool reinicia = dev_->sampleRate() != sr || q != qAtual_ || ppm != ppmAplicado_;
     qAtual_ = q;
     if (reinicia) {
-        dev_->setSampleRate(c.sampleRate());
+        dev_->setSampleRate(sr);
         dev_->setQuadrature(qAtual_);
-        dev_->setPpm(c.ppm());
-        ppmAplicado_ = c.ppm();
+        dev_->setPpm(ppm);
+        ppmAplicado_ = ppm;
         dev_->setCenterFreq((centroSemDc(f)) + xvtr_.load());
     }
-    dev_->setBias(c.biasT());
+    dev_->setBias(cflag("bias_t", false));
     if (tipo_ == "sdrplay") {
         if (auto* s = dynamic_cast<SdrplayDevice*>(dev_.get()))
             s->setSdrplayParams(c.sdrplayIfMode(), c.sdrplayLna(), ifGainSdrplay(), c.sdrplayIfAgc(), c.sdrplayBw());
@@ -449,7 +474,8 @@ void Radio::ligarCallback()
 
         const uint64_t vfoHz = (uint64_t)std::max<int64_t>(1000, (int64_t)vfo_.load(std::memory_order_relaxed) + rit_.load());
         const auto& cfg = Config::instance();
-        const int gainTenths = cfg.gainTenths();
+        const int gainTenths = (int)cnum("gain", 496);
+        const bool agcDongle = cflag("agc", false);
         const float relDb = std::clamp((float(gainTenths) - 280.0f) / 10.0f, -24.0f, 36.0f);
         float uiGain = std::pow(10.0f, relDb / 20.0f);
         const bool direta = usarQ(vfoHz);
@@ -460,8 +486,8 @@ void Radio::ligarCallback()
         // derrubava ~19 dB. Agora, com AGC, o RF continua valendo como ganho digital,
         // 6 dB abaixo do manual (folga para nao saturar) - com RF no maximo, ~3 dB
         // abaixo do ganho manual maximo.
-        if (cfg.agc() && familiaRtl) uiGain = std::pow(10.0f, (relDb - 6.0f) / 20.0f) * 1.380f;
-        else if (cfg.agc()) uiGain = 1.0f;
+        if (agcDongle && familiaRtl) uiGain = std::pow(10.0f, (relDb - 6.0f) / 20.0f) * 1.380f;
+        else if (agcDongle) uiGain = 1.0f;
         if (direta && familiaRtl)    uiGain *= 7.943f;       // +18 dB em HF
         if (!direta && familiaRtl)   uiGain *= 1.259f;       // +2 dB em VHF
         // ATT do painel (ganho digital, dB)
@@ -565,6 +591,7 @@ void Radio::ligarCallback()
             }
         }
         dec_.empurrarIQ(dsrc, n, dev->sampleRate());   // TETRA: IQ com o VFO no zero
+        AjustesDsp::mede() = medirCanal_.load(std::memory_order_relaxed);   // so o receptor ouvido mexe no S-meter
         std::lock_guard<std::mutex> lk(demodMutex_);
         if (demod_) {
             // DMR: discriminador cru, sem de-enfase nem filtros de audio (igual ao RXSDR)

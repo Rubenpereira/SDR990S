@@ -889,7 +889,7 @@ void Ui::abrirRadar()
     if (!(decRodando_ && ehAviacao(decTipo_)) && adsbRede_ && !adsbRedeAlvo_.empty()) {
         evento(R, std::string(T("Radar aberto com o ADS-B pela rede interna")) + " (" + adsbRedeAlvo_ + ":" + std::to_string(adsbRedeAlvoPorta_) + ")", C_ESCALA);
     } else if (!(decRodando_ && ehAviacao(decTipo_))) {
-        if (!r_.ligado()) ligarDesligar();
+        if (!r_->ligado()) ligarDesligar();
         decAberta_ = true;
         escolherDecoder(Decoders::ADSB, true);
         evento(R, T("ADS-B (1090 MHz) ligado para o radar"), C_ESCALA);
@@ -921,7 +921,7 @@ void Ui::salvarRadar()
 // mas o texto deles continua chegando (fica na caixa e no painel do radar)
 void Ui::radarDrenarTexto()
 {
-    const std::string novo = r_.decoders().pegarTexto();
+    const std::string novo = r_->decoders().pegarTexto();
     if (!novo.empty()) anexarDecTexto(novo);
 }
 
@@ -967,7 +967,7 @@ void Ui::telaRadar()
 {
     if (!radar_) { radarAberto_ = false; return; }
     Radar& R = *radar_;
-    auto& d = r_.decoders();
+    auto& d = r_->decoders();
     ImGuiIO& io = ImGui::GetIO();
     const float s = s_;
     const double t = relogio();
@@ -2141,7 +2141,7 @@ void Ui::telaRadar()
 
     // ---------------- acoes (depois de desenhar) ----------------
     if (ligarAdsb) {
-        if (!r_.ligado()) ligarDesligar();
+        if (!r_->ligado()) ligarDesligar();
         decAberta_ = true;
         escolherDecoder(Decoders::ADSB, true);
         evento(R, T("ADS-B (1090 MHz) ligado para o radar"), C_ESCALA);

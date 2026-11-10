@@ -19,6 +19,11 @@
 //  nitido e o certo, e a posicao do pulso e o comeco da linha.
 //  Inclinacao (relogio fora) e alinhamento sao so desenho: cada linha e
 //  girada de (desloc + k * inclinacao) pixels - da para acertar depois.
+//  Sintonia (AFC): o radio fora da frequencia do mostrador desloca os tons
+//  (9109,0 em vez de 9108,1 kHz = 900 Hz abaixo: preto em 600, branco em
+//  1400 Hz). Um segundo caminho, largo (centro +-1450 Hz), faz o histograma da
+//  frequencia instantanea; o preto e o branco sao as duas pontas, separadas
+//  de ~800 Hz - o meio delas vira o centro da mistura no lugar de 1900 Hz.
 // ---------------------------------------------------------------------------
 #include <atomic>
 #include <complex>
@@ -40,6 +45,8 @@ public:
         int deslocamento = 0;         // pixels
         bool alinhadoPelaFase = false;
         int imagens = 0;
+        double desvioHz = 0;          // sintonia: centro medido - 1900 Hz (AFC)
+        bool desvioMedido = false;
     };
     struct Terminada { std::vector<uint8_t> cinza; int w = 0, h = 0, lpm = 120, ioc = 576; };
 
@@ -55,6 +62,7 @@ public:
     std::atomic<bool> automatico{true};   // tom de inicio/fim comandam
     std::atomic<bool> inverter{false};    // preto <-> branco
     std::atomic<bool> autoInclinacao{true};   // endireita sozinho ao terminar
+    std::atomic<bool> afc{true};          // acha o desvio de sintonia sozinho
 
     void definirInclinacao(double pxPorLinha);
     void alinharEm(int coluna);           // essa coluna (da imagem mostrada) vira a margem esquerda
@@ -71,6 +79,8 @@ public:
 private:
     void reconfigurar(uint32_t sps);
     void processar(std::complex<float> d, float p);
+    void medirSintonia(float x);          // caminho largo -> histograma -> centro_
+    void avaliarSintonia();
     void blocoTons();
     void analisarFase(bool ultimaChance);
     void iniciarRecepcao(double inicioAbs, int lpm, int ioc, bool pelaFase);
@@ -94,6 +104,19 @@ private:
     double faseNco_ = 0;
     std::complex<float> zAnt_{0, 0};
     double nivel_ = 0;
+
+    // sintonia (AFC): caminho largo em volta do centro
+    std::vector<float> hL_;
+    std::vector<std::complex<float>> histL_;
+    size_t posL_ = 0;
+    double faseL_ = 0;
+    std::complex<float> lAnt_{0, 0};
+    std::complex<double> dL_{0, 0};
+    int nL_ = 0;
+    std::vector<double> histo_;           // peso por faixa de 10 Hz (200..3200 Hz)
+    size_t contL_ = 0;
+    double centro_ = 1900;                // onde ficam os tons (o meio entre preto e branco)
+    bool centroMedido_ = false;
 
     // historico de d[n]
     std::vector<std::complex<float>> buf_;

@@ -16,6 +16,9 @@ struct AjustesDsp {
 
     static AjustesDsp& g() { static AjustesDsp a; return a; }
 
+    // dois aparelhos: cada aparelho tem a sua thread; so a do receptor ouvido marca o canal
+    static bool& mede() { thread_local bool m = true; return m; }
+
     // Coeficiente de liberacao do AGC por amostra, para a taxa fs.
     // MID = ~1 s (o valor fixo de antes), SLOW = 3 s, FAST = 0,15 s.
     static float liberacao(float fs, float lentoS = 3.0f, float medioS = 1.0f, float rapidoS = 0.15f) {

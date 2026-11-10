@@ -11,6 +11,8 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kAlvo = 12000.0;        // taxa de trabalho (aproximada)
 constexpr int kMaxLinhas = 5000;         // ~40 min a 120 LPM: mais que isso, fecha a imagem
 const int kLpms[] = {120, 60, 90, 100, 180, 240};
+constexpr int kBins = 300;               // histograma da sintonia: 10 Hz por faixa, 200..3200 Hz
+constexpr double kBin0 = 200.0, kBinHz = 10.0;
 
 std::vector<float> passaBaixas(double fc, double fs, int L)
 {
@@ -58,11 +60,18 @@ void WefaxCore::reconfigurar(uint32_t sps)
     } else {
         h0_.clear(); hist0_.clear();
     }
-    // complexo em volta de 1900 Hz: 1500..2300 mais as bandas laterais dos pixels
+    // complexo em volta do centro (1900 Hz, ou o que a sintonia mediu): preto..branco mais as bandas laterais dos pixels
     int L1 = (int)std::ceil(5.5 * fs_ / 600.0) | 1;
     h1_ = passaBaixas(1250.0, fs_, std::clamp(L1, 31, 255));
     hist1_.assign(h1_.size() * 2, {0, 0});
     pos1_ = 0; faseNco_ = 0; zAnt_ = {0, 0};
+    // caminho largo da sintonia: centro +- 1450 Hz (de inicio 450..3350)
+    int LL = (int)std::ceil(5.5 * fs_ / 400.0) | 1;
+    hL_ = passaBaixas(1450.0, fs_, std::clamp(LL, 63, 255));
+    histL_.assign(hL_.size() * 2, {0, 0});
+    posL_ = 0; faseL_ = 0; lAnt_ = {0, 0}; dL_ = {0, 0}; nL_ = 0;
+    histo_.assign(kBins, 0.0);
+    contL_ = 0;
     buf_.clear(); base_ = total_;
     blocoV_.clear();
     seg300_ = seg675_ = seg450_ = 0;
@@ -74,7 +83,6 @@ void WefaxCore::alimentar(const int16_t* pcm, size_t n, uint32_t sps)
     if (!pcm || !n || sps < 8000) return;
     std::lock_guard<std::mutex> lk(m_);
     if (sps != sps_) reconfigurar(sps);
-    const double passo = 2 * kPi * 1900.0 / fs_;
     const size_t L0 = h0_.size(), L1 = h1_.size();
     for (size_t i = 0; i < n; ++i) {
         float x = pcm[i] / 32768.f;
@@ -88,8 +96,10 @@ void WefaxCore::alimentar(const int16_t* pcm, size_t n, uint32_t sps)
             for (size_t k = 0; k < L0; ++k) acc += h0_[k] * hh[k];
             x = acc;
         }
+        medirSintonia(x);
+        if (!afc && centro_ != 1900.0) { centro_ = 1900.0; centroMedido_ = false; }
         const std::complex<float> mix((float)std::cos(faseNco_), (float)-std::sin(faseNco_));
-        faseNco_ += passo;
+        faseNco_ += 2 * kPi * centro_ / fs_;
         if (faseNco_ > 2 * kPi) faseNco_ -= 2 * kPi;
         hist1_[pos1_] = hist1_[pos1_ + L1] = x * mix;
         pos1_ = (pos1_ + 1) % L1;
@@ -101,6 +111,90 @@ void WefaxCore::alimentar(const int16_t* pcm, size_t n, uint32_t sps)
         zAnt_ = z;
         processar(d, std::norm(z));
     }
+}
+
+// ---------------------------------------------------------------------------
+//  Sintonia (AFC). O WEFAX e FM com desvio fixo: preto 400 Hz abaixo do
+//  centro, branco 400 Hz acima. Num caminho largo (o centro atual +-1450 Hz;
+//  ele vai junto com o centro, assim o ruido puxa o preto e o branco por
+//  igual para o meio e nao entorta a medida), a
+//  frequencia instantanea (media de 8 amostras, pesada pelo nivel) vai para
+//  um histograma de 10 Hz. Com o fax no ar as duas pontas do histograma sao
+//  o preto e o branco: se estao a 650..950 Hz uma da outra e as duas tem peso
+//  de verdade, o meio delas e o centro. Ruido (espalhado), voz e portadora
+//  (um pico so) nao passam no teste e o centro fica onde estava.
+// ---------------------------------------------------------------------------
+void WefaxCore::medirSintonia(float x)
+{
+    const size_t L = hL_.size();
+    if (!L) return;
+    const std::complex<float> mix((float)std::cos(faseL_), (float)-std::sin(faseL_));
+    faseL_ += 2 * kPi * centro_ / fs_;
+    if (faseL_ > 2 * kPi) faseL_ -= 2 * kPi;
+    histL_[posL_] = histL_[posL_ + L] = x * mix;
+    posL_ = (posL_ + 1) % L;
+    const std::complex<float>* zz = &histL_[posL_];
+    float re = 0, im = 0;
+    for (size_t k = 0; k < L; ++k) { re += hL_[k] * zz[k].real(); im += hL_[k] * zz[k].imag(); }
+    const std::complex<float> z(re, im);
+    dL_ += std::complex<double>(z * std::conj(lAnt_));
+    lAnt_ = z;
+    if (++nL_ >= 8) {
+        const double peso = std::abs(dL_);
+        if (peso > 0) {
+            const double f = centro_ + std::atan2(dL_.imag(), dL_.real()) * fs_ / (2 * kPi);
+            const int b = int((f - kBin0) / kBinHz);
+            if (b >= 0 && b < kBins) histo_[size_t(b)] += peso;
+        }
+        dL_ = {0, 0}; nL_ = 0;
+    }
+    if (++contL_ >= size_t(fs_ * 0.5)) { contL_ = 0; avaliarSintonia(); }
+}
+
+void WefaxCore::avaliarSintonia()
+{
+    double tot = 0;
+    for (double v : histo_) tot += v;
+    // memoria: ~3 s esperando (acha logo no tom de inicio), ~10 s dentro da imagem
+    const double esquecer = estado_ == RECEBENDO ? 0.95 : 0.85;
+    [&] {
+        if (!afc || tot <= 1e-12) return;
+        // as pontas: 2% e 98% do peso
+        auto quantil = [&](double q) {
+            double a = 0;
+            for (int b = 0; b < kBins; ++b) { a += histo_[size_t(b)]; if (a >= q * tot) return b; }
+            return kBins - 1;
+        };
+        const int bL = quantil(0.02), bH = quantil(0.98);
+        // o nivel de cada ponta: o pico do histograma perto dela (a media pesada
+        // de +-30 Hz em volta do pico; as transicoes entre os pixels ficam fora)
+        // e o peso que ela tem
+        auto ponta = [&](int de, int ate, double& peso) {
+            de = std::max(de, 0); ate = std::min(ate, kBins - 1);
+            int pico = de;
+            for (int b = de; b <= ate; ++b) if (histo_[size_t(b)] > histo_[size_t(pico)]) pico = b;
+            double s = 0, sf = 0;
+            for (int b = std::max(0, pico - 3); b <= std::min(kBins - 1, pico + 3); ++b) {
+                s += histo_[size_t(b)]; sf += histo_[size_t(b)] * (kBin0 + (b + 0.5) * kBinHz);
+            }
+            peso = s / tot;
+            return s > 0 ? sf / s : 0.0;
+        };
+        double pPreto = 0, pBranco = 0;
+        const double preto = ponta(bL - 5, bL + 15, pPreto);
+        const double branco = ponta(bH - 15, bH + 5, pBranco);
+        const double vao = branco - preto;
+        if (vao < 650 || vao > 950 || pPreto < 0.03 || pBranco < 0.03) return;
+        // o que fica entre as pontas tem que ser quase tudo (ruido espalha para fora)
+        double dentro = 0;
+        for (int b = std::max(0, bL - 5); b <= std::min(kBins - 1, bH + 5); ++b) dentro += histo_[size_t(b)];
+        if (dentro < 0.93 * tot) return;
+        const double novo = std::clamp(0.5 * (preto + branco), 700.0, 2500.0);
+        if (!centroMedido_ || std::fabs(novo - centro_) > 150) centro_ = novo;     // salto (sintonia mudou)
+        else centro_ += 0.3 * (novo - centro_);
+        centroMedido_ = true;
+    }();
+    for (auto& v : histo_) v *= esquecer;
 }
 
 void WefaxCore::processar(std::complex<float> d, float p)
@@ -428,6 +522,8 @@ WefaxCore::Status WefaxCore::status()
     s.deslocamento = (int)std::lround(desloc_);
     s.alinhadoPelaFase = pelaFase_;
     s.imagens = imagens_;
+    s.desvioHz = centro_ - 1900.0;
+    s.desvioMedido = centroMedido_;
     return s;
 }
 

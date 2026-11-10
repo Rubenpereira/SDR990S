@@ -1,5 +1,18 @@
 # SDR990S - histórico
 
+## 1.3.0 (10/11/2026)
+- Dois aparelhos: o VFO-B pode ter o seu próprio dongle (RTL-SDR, RTL-TCP ou SDRplay), recebendo ao mesmo tempo
+  que o VFO-A - por exemplo um RTL-TCP em HF e outro em VHF. CONFIGURAÇÃO > VFO-B (segundo aparelho): tipo,
+  IP e porta (ou o dongle USB), Conectar. O áudio dos dois toca junto (padrão) ou só o do VFO selecionado.
+- Volume, RF e squelch de cada VFO nos botões dele: o AF/RF da coluna MAIN RECEIVER controla o VFO-A e o da coluna SUB RECEIVER controla o VFO-B (o SQL de cada coluna e o MUTE de cada uma também).
+- O escopo mostra o aparelho do VFO que se ouve (MAIN RX / SUB RX escolhem). S-meter, squelch e AUTO da cachoeira de cada VFO no aparelho dele.
+- Desligando a caixa "VFO-B com aparelho próprio" tudo volta a ser como antes (um aparelho só).
+
+## SDR990S 1.2.8
+
+- **WEFAX: corrige a sintonia sozinho (AFC).** O fax é FM com o preto 400 Hz abaixo do centro e o branco 400 Hz acima; o decodificador esperava sempre 1500/2300 Hz (rádio exatamente na frequência do mostrador, ex.: **9108,1 kHz** USB para a USCG Boston em 9110). Com o rádio em 9109,0 os tons caíam em 600/1400 Hz: o preto ficava fora do filtro, o tom de início não era reconhecido e a imagem saía **escura, só com uns pontos**. Agora um segundo caminho, largo, mede onde estão o preto e o branco (as duas pontas do histograma da frequência, ~800 Hz uma da outra) e o decodificador passa a trabalhar em volta do centro medido. Acha no tom de início (menos de 5 s) ou, pegando no meio, pela própria imagem. Vai de uns -1000 a +600 Hz; ruído, voz e portadora (CW) não enganam. A linha de estado mostra "sintonia -900 Hz (corrigida)". Caixinha **Corrigir sintonia** no painel (vem ligada).
+- Conferido com a gravação do autor da USCG Boston em 9109,0 kHz USB (desvio de -890 Hz: saem as linhas do mapa) e com faxes gerados de -900 a +600 Hz, com ruído (tom de início, fase e margem certos em todos). Com a sintonia certa a imagem é a mesma de antes.
+
 ## SDR990S 1.2.7
 
 - **Novo decodificador SELCAL** (chamada seletiva dos aviões, ICAO Anexo 10): o "plim-plom" de dois tons que a estação de terra manda para chamar UM avião antes de falar com ele. Dois pulsos de 1 s, cada um com dois tons juntos, viram o código do avião (ex.: **AB-CD**), com hora UTC, desvio de sintonia, nível e os tons; os 16 tons clássicos e os 16 novos do **SELCAL32**. Fica na lista logo depois do ADSB. Canal com 190 frequências de fonia aeronáutica em HF (redes MWARA da ICAO e LDOC das companhias, com as estações e os horários UTC na dica) em USB, com o rádio na frequência do canal; o som continua (para ouvir a conversa). Acha o desvio do SSB sozinho (até ±60 Hz). Cada tom é seguido sozinho e aguenta sumir até 0,35 s: no HF os dois tons desvanecem cada um na sua hora (desvanecimento seletivo). Conferido com uma gravação real do autor em 8906 kHz (NAT-A), com a propagação fraca: as 3 chamadas saíram (AH-KP duas vezes e AK-CM, desvio de -6 Hz). Nos testes decodifica com cada tom até 12 dB abaixo do ruído em 3 kHz (36-38 de 40, também com desvanecimento seletivo), sem falsos alarmes em 20 min de ruído, voz real, voz simulada ou tom único.

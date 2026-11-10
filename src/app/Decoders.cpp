@@ -795,6 +795,11 @@ std::string Decoders::estado()
                           s.alinhadoPelaFase ? T("pela fase") : "manual");
         else if (s.estado == WefaxCore::INICIO) std::snprintf(b, sizeof b, kEst[1], s.ioc);
         else std::snprintf(b, sizeof b, T("%s  |  sinal %.0f dB  |  %d imagens recebidas"), kEst[s.estado], s.nivelDb, s.imagens);
+        // radio fora da frequencia do mostrador: a sintonia (AFC) corrigiu
+        if (s.desvioMedido && std::fabs(s.desvioHz) >= 20) {
+            const size_t n = std::strlen(b);
+            std::snprintf(b + n, sizeof b - n, T("  |  sintonia %+.0f Hz (corrigida)"), s.desvioHz);
+        }
     }
     else if (ft8_) {
         const double per = ft8_->periodo();
